@@ -1,6 +1,7 @@
 # Worker 角色配置清单
 
 **创建时间**: 2026-03-06 13:40 UTC  
+**更新时间**: 2026-03-07 05:30 UTC  
 **用途**: 明确所有 Worker 的角色名称和 Matrix 账号对应关系
 
 ---
@@ -10,11 +11,12 @@
 | Matrix 账号 | 角色英文名 | 角色中文名 | 昵称 | 性别 | 职责简述 |
 |-------------|-----------|-----------|------|------|----------|
 | `@admin:matrix-local.hiclaw.io:18080` | Admin | 管理员 | 老板 | - | 最终决策者 |
-| `@manager:matrix-local.hiclaw.io:18080` | Manager | 经理 | 经理 | - | 任务协调 |
+| `@manager:matrix-local.hiclaw.io:18080` | Manager | 经理 | 经理 | - | 任务协调、Git 操作委托 |
 | `@devops-engineer:matrix-local.hiclaw.io:18080` | DevOps Engineer | 运维工程师 | 运维小哥 | 男 👨 | 基础设施、部署、CI/CD |
 | `@critic-challenger:matrix-local.hiclaw.io:18080` | Challenger Worker | 质询师 | 反问大哥 | 男 👨 | 质量审查、挑毛病 |
 | `@knowledge-searcher:matrix-local.hiclaw.io:18080` | Search Worker | 搜索专员 | 搜索小妹 | 女 👩 | 搜索新知识、整理分享 |
 | `@project-director:matrix-local.hiclaw.io:18080` | Project Director | 项目总监 | 总监大人 | 女 👩 | 分配任务、审查质量、整合方案 |
+| `@project-assistant:matrix-local.hiclaw.io:18080` | Project Assistant | 项目助手 | 小助手 | 女 👩 | 整合工作成果、Git 版本管理 |
 
 ---
 
