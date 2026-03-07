@@ -1,69 +1,66 @@
-# Task Plan: 技术方案详细设计
+# M1 加速计划 - 3 天完成
 
-**Task ID**: task-102  
-**Assigned to**: 张建国 (System Architect)  
-**Started**: 2026-03-06T20:45:00Z  
-**Updated**: 2026-03-07T08:45:00Z  
-
----
-
-## Steps
-
-- [x] Step 1: 阅读项目文档，理解需求和技术决策
-- [x] Step 2: 创建系统架构设计文档（v1.0）
-- [x] Step 3: 补充详细 API 设计文档
-- [x] Step 4: 补充数据库设计文档（LightRAG 详细方案）
-- [x] Step 5: 补充部署方案文档
-- [ ] Step 6: Challenger 审查
-- [ ] Step 7: Admin 审批
-- [ ] Step 8: 根据反馈完善文档
+**版本**: v2.0 (压缩版)  
+**创建时间**: 2026-03-07 19:50 UTC  
+**负责人**: Project Director  
 
 ---
 
-## Notes
+## ⏰ 时间压缩
 
-### 2026-03-07 08:45 UTC - 技术方案设计全部完成
+| 阶段 | 原计划 | **新计划** | 压缩比 |
+|------|--------|-----------|--------|
+| 技术选型 | 2 天 | **6 小时** | 75% |
+| 核心开发 | 5 天 | **2 天** | 60% |
+| 测试审查 | 2 天 | **1 天** | 50% |
+| 部署上线 | 3 天 | **1 天** | 67% |
+| **总计** | 12 天 | **3 天** | **75%** |
 
-**已完成文档**:
-1. ✅ 系统架构设计文档 v1.0（technical-architecture-v1.md）- 23KB
-2. ✅ API 设计文档 v1.0（api-design-v1.md）- 10KB
-3. ✅ 数据库设计文档 v1.0（database-design-v1.md）- 18KB
-4. ✅ 部署方案文档 v1.0（deployment-plan-v1.md）- 17KB
+---
 
-**技术栈确认**:
-- 前端：Vue3 + Pinia + Element Plus + Tailwind CSS
-- 后端：FastAPI + LangChain
-- 向量数据库：LightRAG（图 + 向量混合检索）
-- 关系数据库：PostgreSQL 15
-- 缓存：Redis 7
-- 对象存储：MinIO
-- 部署：Docker + Docker Compose
+## 📋 详细时间表
 
-**文档已同步**:
-- 所有文档已同步到中心化存储 (hiclaw/hiclaw-storage/shared/projects/project-001/)
+### Day 1 (2026-03-07 19:50 - 2026-03-08 19:50)
 
-**下一步**:
-- 等待 Challenger 审查
-- Admin 审批
-- 根据反馈完善文档
+| 时间 | 任务 | 负责人 | 交付物 |
+|------|------|--------|--------|
+| 19:50-20:00 | 任务分配 | Project Director | 任务清单 |
+| 20:00-22:00 | 技术选型调研 | Search Worker | 选型报告 |
+| 22:00-24:00 | 技术选型决策 | Technical Director | 技术决策文档 |
+| 00:00-08:00 | 代码开发 | DevOps Engineer | 核心代码 |
+| 08:00-12:00 | Docker 部署 | DevOps Engineer | Dockerfile |
+| 12:00-18:00 | Challenger 审查 | Challenger | 审查报告 |
+| 18:00-19:50 | 修复 + 提交 | 全员 | Git 提交 |
 
-**待确认事项**:
-- LLM API 预算和限额
-- 用户认证方式（JWT + OAuth2 可选）
-- 前端 UI 设计风格
+### Day 2 (2026-03-08 19:50 - 2026-03-09 19:50)
 
-### 2026-03-06 20:45 UTC - 架构设计初稿完成
+| 时间 | 任务 | 负责人 |
+|------|------|--------|
+| 全天 | 推荐引擎开发 | DevOps Engineer |
+| 全天 | Search Worker 集成 | Search Worker |
+| 晚上 | 代码审查 | Challenger |
 
-**已完成**:
-- 阅读了项目需求文档（task-101/result.md）
-- 阅读了项目计划文档（learning-agent-system-plan-v3.md）
-- 阅读了任务规格文档（task-102/spec.md）
-- 创建了系统架构设计文档 v1.0（technical-architecture-v1.md）
+### Day 3 (2026-03-09 19:50 - 2026-03-10 19:50)
 
-**架构设计要点**:
-- 前端：Vue3 + Pinia + Element Plus
-- 后端：FastAPI + LangChain
-- 向量数据库：LightRAG（图 + 向量混合检索）
-- 关系数据库：PostgreSQL
-- 对象存储：MinIO
-- 部署：Docker + WSL2 本地部署
+| 时间 | 任务 | 负责人 |
+|------|------|--------|
+| 上午 | Worker 工作台 | DevOps Engineer |
+| 下午 | Challenger 集成 | Challenger |
+| 晚上 | 联调 + 演示准备 | 全员 |
+| 19:50 | **M1 演示** | Admin 验收 |
+
+---
+
+## 🎯 M1 验收标准（必须完成）
+
+- [ ] 学习记录生成 <5 分钟 ✅
+- [ ] 知识库检索 <10 秒 ✅
+- [ ] 检索相关性 >80% ⏳
+- [ ] Docker 部署完成 ⏳
+- [ ] 代码审查通过 ⏳
+- [ ] Admin 演示通过 ⏳
+
+---
+
+**状态**: 执行中  
+**下次更新**: 2026-03-08 12:00
