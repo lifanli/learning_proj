@@ -56,7 +56,6 @@ backend/
 ### 认证
 - `POST /api/v1/auth/login` - 用户登录
 - `POST /api/v1/auth/register` - 用户注册
-- `POST /api/v1/auth/refresh` - 刷新 Token
 
 ### 用户
 - `GET /api/v1/users/me` - 获取当前用户信息
@@ -65,7 +64,6 @@ backend/
 ### 课程
 - `GET /api/v1/courses` - 获取课程列表
 - `GET /api/v1/courses/{id}` - 获取课程详情
-- `POST /api/v1/courses` - 创建课程（需要管理员权限）
 
 ### 智能体
 - `POST /api/v1/agents/chat` - 与智能体对话
@@ -83,12 +81,6 @@ backend/
 pytest tests/ -v --cov=app
 ```
 
-### 数据库迁移
-```bash
-alembic revision --autogenerate -m "描述"
-alembic upgrade head
-```
-
 ## Docker 部署
 
 ```bash
@@ -98,4 +90,4 @@ docker run -p 8000:8000 --env-file .env learning-agent-backend
 
 ## 负责人
 
-**赵子轩 | 后端工程师**
+**赵子轩 | 后端工程师**（由现有团队兼任）
