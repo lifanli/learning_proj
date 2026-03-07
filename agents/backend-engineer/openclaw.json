@@ -1,0 +1,27 @@
+{
+  "agentId": "backend-engineer",
+  "name": "赵子轩 | 后端工程师",
+  "description": "负责后端服务开发、API 设计、数据库管理和智能体集成",
+  "model": "hiclaw-gateway/qwen3.5-plus",
+  "thinking": "medium",
+  "skills": [],
+  "customSkills": [],
+  "memory": {
+    "enabled": true,
+    "path": "memory"
+  },
+  "triggers": {
+    "mentions": ["@backend-engineer", "@后端工程师", "@赵子轩"],
+    "patterns": ["后端", "API", "数据库", "FastAPI", "Python", "PostgreSQL"]
+  },
+  "permissions": {
+    "readShared": true,
+    "writeShared": true,
+    "exec": true,
+    "browser": false
+  },
+  "workingHours": {
+    "timezone": "UTC",
+    "active": true
+  }
+}
