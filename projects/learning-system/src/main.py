@@ -1,15 +1,20 @@
 """
-学习智能体系统 - 主入口
-
-FastAPI 应用，提供 RESTful API
+学习智能体系统 - FastAPI 主应用
 """
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
+from typing import List
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List, Optional
-
-from src.learning_generator import LearningRecord, LearningRecordGenerator
-from src.knowledge_base import KnowledgeBase
+from .learning_generator import LearningRecordGenerator
+from .knowledge_base import KnowledgeStorage
+from .learning_generator.models import (
+    LearningRecord,
+    SearchRequest,
+    SearchResponse,
+    RecommendationRequest,
+    RecommendationResponse,
+)
 
 app = FastAPI(
     title="学习智能体系统",
@@ -17,83 +22,116 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# CORS 配置
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # 初始化组件
 generator = LearningRecordGenerator()
-knowledge_base = KnowledgeBase()
+storage = KnowledgeStorage()
 
 
-class TaskData(BaseModel):
-    """任务数据输入模型"""
-    task_id: str
-    worker: str
-    goal: str
-    background: str
-    key_decisions: Optional[List[dict]] = []
-    problems: Optional[List[str]] = []
-    solutions: Optional[List[str]] = []
-    successes: Optional[List[str]] = []
-    lessons: Optional[List[str]] = []
-    tags: Optional[List[str]] = []
-
-
-@app.get("/")
-def read_root():
+@app.get("/health")
+async def health_check():
     """健康检查"""
-    return {"status": "ok", "version": "0.1.0"}
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "0.1.0",
+        "records_count": storage.count(),
+    }
 
 
-@app.post("/learning-records/", response_model=LearningRecord)
-def create_learning_record(task_data: TaskData):
+@app.post("/api/learning-records", response_model=LearningRecord, tags=["学习记录"])
+async def create_learning_record(record: LearningRecord):
     """
     创建学习记录
     
     - **task_id**: 任务 ID
-    - **worker**: 执行 Worker
-    - **goal**: 任务目标
-    - **background**: 任务背景
-    - **key_decisions**: 关键决策
-    - **problems**: 遇到的问题
-    - **solutions**: 解决方案
-    - **successes**: 成功经验
-    - **lessons**: 教训反思
-    - **tags**: 知识标签
+    - **worker**: Worker 名称
+    - **task_description**: 任务描述
+    - **goal_achieved**: 是否达成目标
+    - **quality_score**: 质量评分 (1-5)
     """
-    record = generator.generate(task_data.model_dump())
-    knowledge_base.store(record.model_dump())
-    return record
+    try:
+        # 存储到知识库
+        storage.store(record.id, record.dict())
+        return record
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建失败：{e}")
 
 
-@app.get("/learning-records/")
-def list_learning_records(limit: int = 10):
-    """获取学习记录列表"""
-    return generator.records[:limit]
-
-
-@app.get("/knowledge-base/search")
-def search_knowledge(query: str, top_k: int = 5):
+@app.get("/api/learning-records", response_model=List[LearningRecord], tags=["学习记录"])
+async def list_learning_records(task_id: str = None, worker: str = None):
     """
-    搜索知识库
+    查询学习记录
     
-    - **query**: 搜索查询
-    - **top_k**: 返回结果数量
+    - **task_id**: 按任务 ID 过滤 (可选)
+    - **worker**: 按 Worker 过滤 (可选)
     """
-    results = knowledge_base.search(query, top_k)
-    return {"query": query, "results": results, "count": len(results)}
+    try:
+        if task_id:
+            records = generator.get_records_by_task(task_id)
+        elif worker:
+            records = generator.get_records_by_worker(worker)
+        else:
+            records = generator.get_all_records()
+        return records
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"查询失败：{e}")
 
 
-@app.get("/knowledge-base/stats")
-def get_knowledge_base_stats():
-    """获取知识库统计信息"""
-    return knowledge_base.get_stats()
+@app.post("/api/search", response_model=SearchResponse, tags=["检索"])
+async def search_knowledge(request: SearchRequest):
+    """
+    知识库检索
+    
+    - **query**: 检索查询
+    - **top_k**: 返回结果数量 (默认 5)
+    """
+    try:
+        start_time = datetime.utcnow()
+        results = storage.search(request.query, request.top_k)
+        latency = (datetime.utcnow() - start_time).total_seconds() * 1000
+        
+        return SearchResponse(
+            query=request.query,
+            results=results,
+            total=len(results),
+            latency_ms=latency,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"检索失败：{e}")
 
 
-@app.get("/health")
-def health_check():
-    """健康检查"""
+@app.post("/api/recommend", response_model=RecommendationResponse, tags=["推荐"])
+async def get_recommendations(request: RecommendationRequest):
+    """
+    获取推荐
+    
+    - **task_description**: 任务描述
+    - **task_type**: 任务类型 (可选)
+    - **top_k**: 推荐数量 (默认 5)
+    """
+    # TODO: 实现推荐算法
+    return RecommendationResponse(
+        task_description=request.task_description,
+        recommendations=[],
+        confidence=0.0,
+    )
+
+
+@app.get("/api/stats", tags=["统计"])
+async def get_stats():
+    """获取系统统计信息"""
     return {
-        "status": "healthy",
-        "learning_records": len(generator.records),
-        "knowledge_base_size": len(knowledge_base.records),
+        "total_records": storage.count(),
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
