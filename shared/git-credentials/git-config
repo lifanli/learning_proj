@@ -1,0 +1,3 @@
+[credential "https://github.com"]
+    username = git
+    helper = store --file /root/hiclaw-fs/shared/git-credentials/.git-credentials
