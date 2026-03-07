@@ -7,6 +7,14 @@ Date: 2026-03-07
 
 from .agent import Agent
 from .memory import MemoryManager
+from .vector_db import VectorDB, LocalVectorDB, WeaviateDB, create_vector_db
 
 __version__ = "0.1.0"
-__all__ = ["Agent", "MemoryManager"]
+__all__ = [
+    "Agent",
+    "MemoryManager",
+    "VectorDB",
+    "LocalVectorDB",
+    "WeaviateDB",
+    "create_vector_db"
+]
