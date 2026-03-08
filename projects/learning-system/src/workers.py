@@ -62,6 +62,19 @@ class DevOpsWorker(Agent):
         return f"DevOps: 完成 {task}"
 
 
+class TesterWorker(Agent):
+    """测试 Worker"""
+    
+    def __init__(self):
+        super().__init__("测试员", "Tester Worker")
+        self.memory = MemoryManager()
+    
+    def execute(self, task: str, context: dict = None) -> str:
+        """执行测试任务"""
+        self.memory.add_memory(f"Test: {task}", {"type": "testing"})
+        return f"Tester: 完成 {task} 的测试"
+
+
 def create_worker(role: str) -> Agent:
     """创建 Worker 实例"""
     workers = {
@@ -69,5 +82,6 @@ def create_worker(role: str) -> Agent:
         "search": SearchWorker,
         "challenger": ChallengerWorker,
         "devops": DevOpsWorker,
+        "tester": TesterWorker,
     }
     return workers.get(role, ArchitectWorker)()

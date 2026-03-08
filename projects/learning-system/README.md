@@ -16,6 +16,9 @@ python -m src.api
 
 # 运行 Web 界面
 python -m src.web
+
+# 运行测试 (测试 Worker)
+python run_tests.py
 ```
 
 ## 项目结构
