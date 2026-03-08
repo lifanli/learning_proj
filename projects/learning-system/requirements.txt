@@ -1,11 +1,18 @@
-# 学习智能体系统 - 依赖
+# 学习智能体系统 - 完整依赖
 
-# 核心依赖
+# Web 框架
+flask>=2.3.0
+
+# HTTP 客户端
 requests>=2.28.0
 
 # 向量数据库 (可选)
 # weaviate-client>=3.0.0
 # chromadb>=0.4.0
+# pinecone-client>=2.0.0
+
+# 数据处理
+numpy>=1.24.0
 
 # 开发工具
 pytest>=7.0.0
@@ -14,3 +21,6 @@ flake8>=6.0.0
 
 # 部署
 docker>=6.0.0
+
+# 日志
+python-json-logger>=2.0.0
