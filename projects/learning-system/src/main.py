@@ -1,5 +1,5 @@
 """
-学习智能体系统 - FastAPI 主应用
+学习智能体系统 - FastAPI 主应用 (v0.2.0)
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +8,7 @@ from typing import List
 
 from .learning_generator import LearningRecordGenerator
 from .knowledge_base import KnowledgeStorage
+from .recommendation import RecommendationEngine
 from .learning_generator.models import (
     LearningRecord,
     SearchRequest,
@@ -19,7 +20,7 @@ from .learning_generator.models import (
 app = FastAPI(
     title="学习智能体系统",
     description="经验沉淀与知识复用系统",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 # CORS 配置
@@ -34,6 +35,7 @@ app.add_middleware(
 # 初始化组件
 generator = LearningRecordGenerator()
 storage = KnowledgeStorage()
+recommender = RecommendationEngine()
 
 
 @app.get("/health")
@@ -42,7 +44,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": "0.1.0",
+        "version": "0.2.0",
         "records_count": storage.count(),
     }
 
@@ -61,6 +63,18 @@ async def create_learning_record(record: LearningRecord):
     try:
         # 存储到知识库
         storage.store(record.id, record.dict())
+        
+        # 添加到推荐引擎
+        recommender.add_record({
+            "id": record.id,
+            "task_id": record.task_id,
+            "worker": record.worker,
+            "task_description": record.task_description,
+            "tags": record.tags,
+            "successes": record.successes,
+            "lessons_learned": record.lessons_learned,
+        })
+        
         return record
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"创建失败：{e}")
@@ -118,12 +132,23 @@ async def get_recommendations(request: RecommendationRequest):
     - **task_type**: 任务类型 (可选)
     - **top_k**: 推荐数量 (默认 5)
     """
-    # TODO: 实现推荐算法
-    return RecommendationResponse(
-        task_description=request.task_description,
-        recommendations=[],
-        confidence=0.0,
-    )
+    try:
+        recommendations = recommender.recommend(
+            request.task_description,
+            request.task_type,
+            request.top_k
+        )
+        
+        # 计算平均置信度
+        avg_confidence = sum(r["score"] for r in recommendations) / len(recommendations) if recommendations else 0.0
+        
+        return RecommendationResponse(
+            task_description=request.task_description,
+            recommendations=recommendations,
+            confidence=min(avg_confidence * 100, 100),  # 转换为百分比
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"推荐失败：{e}")
 
 
 @app.get("/api/stats", tags=["统计"])
