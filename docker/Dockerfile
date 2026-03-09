@@ -7,11 +7,11 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制 backend 代码
-COPY ../backend/requirements.txt ./requirements.txt
+# 复制 backend 代码 (从构建上下文)
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY ../backend/ ./
+COPY app/ ./app/
 
 # 暴露端口
 EXPOSE 8000

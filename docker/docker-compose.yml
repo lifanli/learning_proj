@@ -1,12 +1,12 @@
 services:
   api:
     build: 
-      context: .
-      dockerfile: Dockerfile
+      context: ../backend
+      dockerfile: ../docker/Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ../backend:/app
+      - ./app:/app/app
     environment:
       - DATABASE_URL=postgresql://admin:admin@db:5432/knowledge
       - REDIS_URL=redis://redis:6379/0
@@ -19,8 +19,8 @@ services:
 
   worker:
     build: 
-      context: .
-      dockerfile: Dockerfile
+      context: ../backend
+      dockerfile: ../docker/Dockerfile
     command: celery -A app.tasks worker --loglevel=info
     environment:
       - DATABASE_URL=postgresql://admin:admin@db:5432/knowledge
