@@ -12,8 +12,7 @@ services:
       - SECRET_KEY=your-secret-key-here
     depends_on:
       - db
-    volumes:
-      - ./shared/backend:/app
+      - redis
 
   worker:
     build:
