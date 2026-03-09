@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 敏感信息
+.env
+*.key
+*.pem
+secrets/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 日志
+*.log
+logs/
+
+# Node
+node_modules/
+dist/
