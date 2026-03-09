@@ -7,12 +7,11 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Python 依赖
-COPY requirements.txt .
+# 复制 backend 代码
+COPY ../backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制代码
-COPY . .
+COPY ../backend/ ./
 
 # 暴露端口
 EXPOSE 8000

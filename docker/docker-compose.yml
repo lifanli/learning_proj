@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   api:
     build: 
-      context: ../backend
+      context: .
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
@@ -21,7 +19,7 @@ services:
 
   worker:
     build: 
-      context: ../backend
+      context: .
       dockerfile: Dockerfile
     command: celery -A app.tasks worker --loglevel=info
     environment:
