@@ -1,4 +1,4 @@
-﻿# Secrets and local environment
+# Secrets and local environment
 .env
 .env.*
 !.env.example
@@ -36,3 +36,8 @@ test-git-fix/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local notes and process docs
+/docs/
+/*.md
+!/README.md
