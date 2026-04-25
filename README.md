@@ -1,87 +1,118 @@
 # Learning Code Project
 
-Learning Code Project 是一个本地优先的 AI 学习与知识生产工作台。它把“课程规划、素材学习、知识库整理、长文出版、任务进度跟踪”串成一个可运行的端到端流程，适合用来围绕一个学习目标持续构建个人知识库。
+Learning Code Project is a local-first AI learning workspace for building a personal knowledge base from a learning goal. It connects curriculum planning, source collection, material analysis, knowledge-base browsing, long-form publishing, and background task tracking into one runnable project.
 
-## 核心能力
+## Features
 
-- 课程表生成：根据学习目标生成结构化 curriculum，并支持审批后执行。
-- 自动学习：按课程表抓取和分析网页、GitHub、ArXiv、课程页面等素材。
-- 知识库管理：读取本地 Markdown 知识库，前端可浏览目录和文件内容。
-- 出版流程：基于已收集素材生成章节、小节和汇总报告。
-- 后台任务：课程生成、自动学习、出版任务支持进度、重试、取消和详情查看。
-- Web 控制台：FastAPI 后端 + Vue/Vite 前端，支持一键集成启动。
+- Curriculum generation: create a structured learning plan from a goal, then approve it before execution.
+- Automated study workflow: collect and analyze web pages, GitHub repositories, ArXiv papers, and course pages.
+- Knowledge-base browser: view local Markdown knowledge-base folders and files from the web UI.
+- Publishing workflow: generate chapters, sections, and quality reports from collected materials.
+- Background tasks: track progress, retry failures, cancel cooperative long-running tasks, and inspect task details.
+- Integrated web app: FastAPI backend with a Vue/Vite frontend.
 
-## 技术栈
+## Tech Stack
 
-- 后端：Python, FastAPI, Pydantic, PyYAML
-- 前端：Vue 3, Vite
-- LLM：OpenAI-compatible API，可配置 DashScope/Qwen 等兼容服务
-- 数据：本地文件、Markdown、SQLite/JSON 运行缓存
+- Backend: Python, FastAPI, Pydantic, PyYAML
+- Frontend: Vue 3, Vite
+- LLM: OpenAI-compatible APIs, including DashScope/Qwen-compatible endpoints
+- Storage: local files, Markdown, SQLite, and JSON runtime state
 
-## 快速启动
+## Requirements
 
-项目默认使用 conda 环境 `study-proj`。
+- Python 3.11 or newer is recommended.
+- Node.js 18 or newer is recommended for building the frontend.
+- An OpenAI-compatible API key if you want to run LLM-backed workflows.
 
-```powershell
-copy .env.example .env
-# 编辑 .env，设置 DASHSCOPE_API_KEY
+Create and activate your own Python environment with your preferred tool, then install the Python dependencies:
 
-.\start.bat
+```bash
+python -m pip install -r requirements.txt
 ```
 
-等价的 PowerShell 启动方式：
+Install and build the frontend:
 
-```powershell
-.\scripts\start.ps1 -CondaEnv study-proj
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
-启动后访问：
+Create a local environment file for secrets:
+
+```bash
+cp .env.example .env
+```
+
+Set `DASHSCOPE_API_KEY` or the environment variable referenced by `llm.api_key_env` in `config/settings.yaml`. Do not commit real API keys.
+
+## Run
+
+Start the integrated API and web frontend with Python:
+
+```bash
+python run_api.py
+```
+
+Open:
 
 ```text
 http://localhost:8000
 ```
 
-默认只监听 `127.0.0.1`。如果确实需要局域网访问，可以显式传入 `-HostAddress 0.0.0.0`。
+By default the service listens on `127.0.0.1`. If you intentionally need LAN access, set `STUDY_PROJ_HOST=0.0.0.0` before starting the app.
 
-## 配置说明
+## Configuration
 
-主要配置位于 `config/settings.yaml`。
+Main configuration lives in `config/settings.yaml`.
 
-- `llm.api_key_env` 指定读取哪个环境变量作为 API Key。
-- API Key 不写入 `settings.yaml`，请放在本地 `.env` 中。
-- `.env`、运行数据、日志、素材库、知识库生成结果和前端构建产物默认不会提交到 Git。
+- `llm.api_key_env` names the environment variable used for the LLM API key.
+- `llm.base_url` points to the OpenAI-compatible API endpoint.
+- `models.fast`, `models.deep`, and `models.vision` select model names used by different workflows.
+- API keys should stay in local environment variables or `.env`, not in committed YAML files.
 
-## 常用命令
+## Tests
 
-后端测试：
+Run the backend test suite:
 
-```powershell
-conda run -n study-proj python -m pytest -q
+```bash
+python -m pytest -q
 ```
 
-前端构建：
+The live LLM smoke test is skipped by default. Run it only when you explicitly want to make a real API call:
 
-```powershell
-cd frontend
-npm install
-npm run build
+```bash
+RUN_LIVE_LLM_TEST=1 python -m pytest tests/test_llm.py -q
 ```
 
-手动 LLM smoke test：
+On Windows PowerShell:
 
 ```powershell
 $env:RUN_LIVE_LLM_TEST="1"
-conda run -n study-proj python -m pytest tests/test_llm.py -q
+python -m pytest tests/test_llm.py -q
 ```
 
-## 分支策略
+## Repository Hygiene
 
-- `main`：面向展示和稳定版本，README 保持清晰准确。
-- `study-proj-current`：日常开发与代码记录分支，不跟踪过程文档和个人笔记。
+The repository intentionally ignores local runtime data and personal outputs:
 
-## 安全边界
+- `.env` and other local secret files
+- logs and task runtime state
+- collected materials and generated knowledge-base content
+- frontend build output
+- local notes and process documents
 
-- `/api/settings` 仅允许本机访问，并且不会返回或保存明文密钥。
-- `/api/system/state` 返回脱敏后的诊断信息。
-- 日志和知识库文件读取使用路径归一化与目录包含校验，避免路径穿越。
-- 任务列表只返回错误摘要，完整 traceback 仅在任务详情中查看。
+Only `README.md` is tracked as public-facing Markdown documentation.
+
+## Branches
+
+- `main`: public-facing stable branch with a clear project README.
+- `study-proj-current`: development branch for ongoing code history.
+
+## Security Notes
+
+- `/api/settings` is restricted to localhost and does not return or persist plaintext secrets.
+- `/api/system/state` returns redacted diagnostic settings.
+- Log and knowledge-base file reads validate path containment to prevent traversal.
+- Task lists return compact error summaries; full tracebacks are available only in task detail responses.
