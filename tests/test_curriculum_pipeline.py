@@ -18,6 +18,23 @@ class TestLlmClientBaseUrlNormalization:
 
 
 class TestLlmClientApiKeyResolution:
+    def test_project_env_overrides_stale_process_env(self, tmp_path, monkeypatch):
+        env_path = tmp_path / ".env"
+        env_path.write_text("LOCAL_TEST_API_KEY=from-dotenv\n", encoding="utf-8")
+        monkeypatch.setattr("src.core.llm_client.PROJECT_ENV_PATH", env_path)
+        monkeypatch.setenv("LOCAL_TEST_API_KEY", "stale-process-key")
+
+        client = LLMClient({
+            "llm": {
+                "provider": "openai",
+                "api_key_env": "LOCAL_TEST_API_KEY",
+                "api_key": "",
+                "base_url": "https://example.com/v1",
+            }
+        })
+
+        assert client.client.api_key == "from-dotenv"
+
     def test_falls_back_to_config_api_key_when_env_is_missing(self, monkeypatch):
         monkeypatch.delenv("MISSING_API_KEY", raising=False)
 

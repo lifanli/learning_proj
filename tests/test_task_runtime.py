@@ -164,6 +164,61 @@ def test_background_task_registry_summarizes_errors_in_listing(tmp_path):
         registry.shutdown()
 
 
+def test_background_task_registry_marks_business_error_result_failed(tmp_path):
+    storage_path = tmp_path / "tasks.json"
+
+    def business_error_task():
+        return {
+            "status": "error",
+            "error": "所有章节生成失败，未输出书籍",
+            "missing_sections": [{"section": "1.1", "reason": "撰写失败"}],
+        }
+
+    registry = BackgroundTaskRegistry(max_workers=1, storage_path=storage_path)
+    try:
+        task = registry.submit("publish.book", business_error_task)
+        failed = _wait_for_task(registry, task.id)
+        listed = registry.list()[0]
+
+        assert failed.status == "failed"
+        assert failed.error == "所有章节生成失败，未输出书籍"
+        assert failed.result["status"] == "error"
+        assert listed["status"] == "failed"
+        assert listed["error"] == "所有章节生成失败，未输出书籍"
+        assert listed["result_summary"] == "status=error"
+    finally:
+        registry.shutdown()
+
+
+def test_background_task_registry_clears_finished_but_keeps_running(tmp_path):
+    storage_path = tmp_path / "tasks.json"
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_task():
+        started.set()
+        release.wait(timeout=3)
+        return {"done": True}
+
+    registry = BackgroundTaskRegistry(max_workers=1, storage_path=storage_path)
+    try:
+        finished_task = registry.submit("test.finished", lambda: {"ok": True})
+        finished = _wait_for_task(registry, finished_task.id)
+        running = registry.submit("test.running", blocking_task)
+        assert started.wait(timeout=3)
+
+        cleared = registry.clear_finished()
+        listed_ids = {task["id"] for task in registry.list()}
+
+        assert finished.status == "succeeded"
+        assert cleared == 1
+        assert finished_task.id not in listed_ids
+        assert running.id in listed_ids
+    finally:
+        release.set()
+        registry.shutdown()
+
+
 def test_background_task_registry_retries_failed_task(tmp_path):
     storage_path = tmp_path / "tasks.json"
     calls = []

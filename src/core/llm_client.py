@@ -11,13 +11,15 @@
 """
 
 import os
+from pathlib import Path
 from typing import List, Optional, Generator, Tuple, Union
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from src.utils.logger import logger
 
-load_dotenv()
+PROJECT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=PROJECT_ENV_PATH)
 
 # 尝试导入 anthropic SDK，不可用时设为 None
 try:
@@ -58,6 +60,9 @@ class LLMClient:
         return self._client
 
     def _create_client(self):
+        # Re-read the project .env at client creation time so settings-page
+        # updates take effect for newly created workers without another import.
+        load_dotenv(dotenv_path=PROJECT_ENV_PATH, override=True)
         llm_cfg = self._config.get("llm", {})
 
         # Prefer environment variables. Direct api_key is kept only for

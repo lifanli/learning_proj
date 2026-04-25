@@ -12,7 +12,12 @@ const detailError = ref('')
 const actionMessage = ref('')
 const actionError = ref('')
 const showFullDetail = ref(false)
+const autoRefresh = ref(true)
 let timer = null
+
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'cancel_requested'])
+const ACTIVE_REFRESH_MS = 4000
+const IDLE_REFRESH_MS = 30000
 
 async function loadTasks() {
   loading.value = true
@@ -27,6 +32,9 @@ async function loadTasks() {
         if (latest.status !== previousStatus || (latest.has_result && selectedTask.value?.result == null)) {
           await loadTaskDetail(latest.id)
         }
+      } else {
+        selectedTask.value = null
+        selectedTaskId.value = ''
       }
     }
     error.value = ''
@@ -35,6 +43,32 @@ async function loadTasks() {
   } finally {
     loading.value = false
   }
+}
+
+function hasActiveTasks() {
+  return tasks.value.some((task) => ACTIVE_STATUSES.has(task.status))
+}
+
+function clearRefreshTimer() {
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
+}
+
+function scheduleNextRefresh() {
+  clearRefreshTimer()
+  if (!autoRefresh.value) return
+  const delay = hasActiveTasks() ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS
+  timer = setTimeout(async () => {
+    await loadTasks()
+    scheduleNextRefresh()
+  }, delay)
+}
+
+async function refreshNow() {
+  await loadTasks()
+  scheduleNextRefresh()
 }
 
 async function selectTask(task) {
@@ -86,6 +120,32 @@ async function retryTask(task) {
   }
 }
 
+async function clearFinishedTasks() {
+  actionMessage.value = ''
+  actionError.value = ''
+  try {
+    const data = await apiSend('/api/tasks', 'DELETE')
+    tasks.value = data.items || []
+    if (selectedTaskId.value && !tasks.value.some((task) => task.id === selectedTaskId.value)) {
+      selectedTask.value = null
+      selectedTaskId.value = ''
+    }
+    actionMessage.value = `已清理 ${data.cleared || 0} 条已结束任务记录。`
+    scheduleNextRefresh()
+  } catch (err) {
+    actionError.value = String(err)
+  }
+}
+
+function toggleAutoRefresh() {
+  autoRefresh.value = !autoRefresh.value
+  if (autoRefresh.value) {
+    scheduleNextRefresh()
+  } else {
+    clearRefreshTimer()
+  }
+}
+
 function taskSummary(task) {
   if (task.error) return compactText(firstLine(task.error), 180)
   if (task.result_summary) return translateTaskText(task.result_summary)
@@ -125,22 +185,36 @@ const detailText = computed(() => {
 })
 
 onMounted(() => {
-  loadTasks()
-  timer = setInterval(loadTasks, 4000)
+  loadTasks().finally(scheduleNextRefresh)
 })
 
 onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
+  clearRefreshTimer()
 })
 </script>
 
 <template>
   <section class="card">
     <div class="section-header">
-      <h3>后台任务</h3>
-      <button class="secondary" @click="loadTasks">刷新</button>
+      <div>
+        <h3>后台任务</h3>
+        <p class="muted">
+          {{ autoRefresh ? (hasActiveTasks() ? '自动刷新：运行中任务每 4 秒更新。' : '自动刷新：空闲时每 30 秒检查一次。') : '自动刷新已暂停。' }}
+        </p>
+      </div>
+      <div class="actions">
+        <button class="secondary" @click="refreshNow">刷新</button>
+        <button class="secondary" @click="toggleAutoRefresh">
+          {{ autoRefresh ? '暂停自动刷新' : '开启自动刷新' }}
+        </button>
+        <button class="danger" @click="clearFinishedTasks" :disabled="!tasks.length">
+          清空已结束记录
+        </button>
+      </div>
     </div>
 
+    <p v-if="actionMessage" class="success">{{ actionMessage }}</p>
+    <p v-if="actionError" class="error">{{ actionError }}</p>
     <p v-if="loading">正在加载任务...</p>
     <p v-else-if="error" class="error">{{ error }}</p>
 
@@ -187,8 +261,6 @@ onBeforeUnmount(() => {
           <div class="progress-track detail-progress" :title="`${progressValue(selectedTask)}%`">
             <div class="progress-fill" :style="{ width: `${progressValue(selectedTask)}%` }"></div>
           </div>
-          <p v-if="actionMessage" class="success">{{ actionMessage }}</p>
-          <p v-if="actionError" class="error">{{ actionError }}</p>
           <p v-if="detailError" class="error">{{ detailError }}</p>
           <pre class="log-box">{{ detailText }}</pre>
         </template>

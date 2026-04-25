@@ -106,6 +106,7 @@ class TestPublisherAgentReport:
             metadata={},
         )
         agent.plan_book = MagicMock(return_value=outline)
+        agent._preflight_llm = MagicMock()
         agent._collect_expected_sections = MagicMock(
             return_value=[{"chapter": "Chapter 1", "section": "Section 1", "file_path": "chapter/section.md"}]
         )
@@ -127,3 +128,17 @@ class TestPublisherAgentReport:
         assert any(message and "出版：目录规划完成" in message for _, message in updates)
         assert any(message and "出版：撰写章节 1/1" in message for _, message in updates)
         assert any(message == "出版：组装知识库文件" for _, message in updates)
+
+    @pytest.mark.asyncio
+    async def test_publish_book_fails_fast_when_llm_preflight_fails(self, tmp_path):
+        agent = object.__new__(PublisherAgent)
+        agent.config = {"publisher": {"max_concurrent_sections": 1}}
+        agent.kb_root = str(tmp_path)
+        agent._preflight_llm = MagicMock(side_effect=RuntimeError("401 auth failed"))
+        agent.plan_book = MagicMock()
+
+        result = await agent.publish_book("Test Book", output_dir=str(tmp_path / "out"))
+
+        assert result["status"] == "error"
+        assert "出版前 LLM 连通性检查失败" in result["error"]
+        agent.plan_book.assert_not_called()

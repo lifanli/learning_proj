@@ -12,10 +12,12 @@ from pydantic import BaseModel, Field
 
 from .services import (
     approve_curriculum,
+    check_llm_connection,
     generate_curriculum,
     get_curriculum,
     get_dashboard_summary,
     get_knowledge_tree,
+    get_llm_runtime_status,
     get_material,
     get_system_state,
     list_log_files,
@@ -26,6 +28,7 @@ from .services import (
     run_auto_study,
     run_manual_study,
     run_publish,
+    save_llm_api_key,
     save_settings_text,
 )
 from .task_runtime import registry
@@ -54,6 +57,11 @@ class PublishRequest(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     content: str
+
+
+class LlmApiKeyUpdateRequest(BaseModel):
+    api_key: str = Field(min_length=1)
+    api_key_env: Optional[str] = None
 
 
 def _require_local_client(request: Request) -> None:
@@ -195,9 +203,32 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"saved": True, "settings": parsed}
 
+    @app.get("/api/settings/llm")
+    def settings_llm(request: Request):
+        _require_local_client(request)
+        return get_llm_runtime_status()
+
+    @app.put("/api/settings/llm/api-key")
+    def settings_llm_api_key(payload: LlmApiKeyUpdateRequest, request: Request):
+        _require_local_client(request)
+        try:
+            return {"saved": True, "status": save_llm_api_key(payload.api_key, payload.api_key_env)}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.post("/api/settings/llm/check")
+    def settings_llm_check(request: Request):
+        _require_local_client(request)
+        return check_llm_connection()
+
     @app.get("/api/tasks")
     def tasks():
         return {"items": registry.list()}
+
+    @app.delete("/api/tasks")
+    def tasks_clear():
+        cleared = registry.clear_finished()
+        return {"cleared": cleared, "items": registry.list()}
 
     @app.get("/api/tasks/{task_id}")
     def task_detail(task_id: str):

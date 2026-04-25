@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+from dotenv import dotenv_values, load_dotenv
 
 from src.core.worker import clear_config_cache
+from src.core.llm_client import LLMClient
 from src.core.material_store import MaterialStore
 from src.publisher_v2.publisher_agent import PublisherAgent
 from src.student.curriculum_agent import CurriculumAgent
@@ -20,6 +22,7 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 CURRICULUM_PATH = PROJECT_ROOT / "config" / "curriculum.yaml"
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 KB_ROOT = PROJECT_ROOT / "knowledge_base"
+ENV_PATH = PROJECT_ROOT / ".env"
 SENSITIVE_SETTING_KEYS = {
     "api_key",
     "access_key",
@@ -49,6 +52,70 @@ def _sanitize_settings_for_storage(value: Any) -> Any:
     if isinstance(value, list):
         return [_sanitize_settings_for_storage(item) for item in value]
     return value
+
+
+def _quote_env_value(value: str) -> str:
+    if "\n" in value or "\r" in value:
+        raise ValueError("secret values cannot contain line breaks")
+    if any(ch.isspace() for ch in value) or "#" in value or '"' in value:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+def _upsert_env_value(path: Path, name: str, value: str) -> None:
+    if not name or not name.replace("_", "").isalnum() or name[0].isdigit():
+        raise ValueError(f"invalid environment variable name: {name!r}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    prefix = f"{name}="
+    rendered = f"{name}={_quote_env_value(value)}"
+    replaced = False
+    updated_lines = []
+    for line in lines:
+        stripped = line.lstrip()
+        if not stripped.startswith("#") and stripped.startswith(prefix):
+            updated_lines.append(rendered)
+            replaced = True
+        else:
+            updated_lines.append(line)
+    if not replaced:
+        updated_lines.append(rendered)
+    path.write_text("\n".join(updated_lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _secret_status(value: str) -> dict:
+    value = str(value or "").strip()
+    return {
+        "present": bool(value),
+        "length": len(value),
+        "prefix": value[:3] if value else "",
+        "suffix": value[-4:] if value else "",
+    }
+
+
+def _sync_llm_api_key_to_env(settings: dict) -> None:
+    llm_cfg = settings.get("llm", {}) if isinstance(settings, dict) else {}
+    if not isinstance(llm_cfg, dict):
+        return
+
+    api_key = str(llm_cfg.get("api_key") or "").strip()
+    if not api_key:
+        return
+
+    api_key_env = str(llm_cfg.get("api_key_env") or "").strip() or "OPENAI_API_KEY"
+    _upsert_env_value(ENV_PATH, api_key_env, api_key)
+    os.environ[api_key_env] = api_key
+
+
+def _get_llm_api_key_env(settings: dict) -> str:
+    llm_cfg = settings.get("llm", {}) if isinstance(settings, dict) else {}
+    env_name = str(llm_cfg.get("api_key_env") or "").strip()
+    if env_name:
+        return env_name
+    provider = str(llm_cfg.get("provider") or "openai").strip().lower()
+    return "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
 
 
 def _redact_settings(value: Any) -> Any:
@@ -85,11 +152,79 @@ def save_settings_text(content: str) -> dict:
     parsed = yaml.safe_load(content) or {}
     if not isinstance(parsed, dict):
         raise ValueError("settings content must be a YAML mapping")
+    _sync_llm_api_key_to_env(parsed)
     sanitized = _sanitize_settings_for_storage(parsed)
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(_dump_settings(sanitized), encoding="utf-8")
     clear_config_cache()
     return sanitized
+
+
+def get_llm_runtime_status() -> dict:
+    settings = _load_settings()
+    llm_cfg = settings.get("llm", {}) if isinstance(settings, dict) else {}
+    api_key_env = _get_llm_api_key_env(settings)
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+    env_file_values = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+    return {
+        "provider": llm_cfg.get("provider", "openai"),
+        "api_mode": llm_cfg.get("api_mode", "auto"),
+        "base_url": llm_cfg.get("base_url", ""),
+        "model": llm_cfg.get("model", ""),
+        "fast_model": settings.get("models", {}).get("fast", ""),
+        "deep_model": settings.get("models", {}).get("deep", ""),
+        "api_key_env": api_key_env,
+        "env_file": str(ENV_PATH),
+        "env_file_exists": ENV_PATH.exists(),
+        "env_file_key": _secret_status(env_file_values.get(api_key_env, "")),
+        "process_key": _secret_status(os.getenv(api_key_env, "")),
+    }
+
+
+def save_llm_api_key(api_key: str, api_key_env: Optional[str] = None) -> dict:
+    cleaned_key = str(api_key or "").strip()
+    if not cleaned_key:
+        raise ValueError("API Key 不能为空")
+
+    settings = _load_settings()
+    llm_cfg = settings.setdefault("llm", {})
+    env_name = str(api_key_env or llm_cfg.get("api_key_env") or "").strip() or _get_llm_api_key_env(settings)
+    llm_cfg["api_key_env"] = env_name
+    llm_cfg["api_key"] = ""
+
+    _upsert_env_value(ENV_PATH, env_name, cleaned_key)
+    os.environ[env_name] = cleaned_key
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(_dump_settings(_sanitize_settings_for_storage(settings)), encoding="utf-8")
+    clear_config_cache()
+    return get_llm_runtime_status()
+
+
+def check_llm_connection() -> dict:
+    settings = _load_settings()
+    llm_cfg = settings.get("llm", {}) if isinstance(settings, dict) else {}
+    model = settings.get("models", {}).get("fast") or llm_cfg.get("model")
+    if not model:
+        return {"ok": False, "error": "未配置可用模型"}
+    try:
+        client = LLMClient(settings)
+        reply = client.chat_completion(
+            messages=[{"role": "user", "content": "只回复 OK"}],
+            model=model,
+            stream=False,
+            enable_thinking=False,
+            temperature=0,
+            timeout=30,
+            max_tokens=8,
+        )
+        return {"ok": True, "model": model, "reply": str(reply).strip()[:40], "status": get_llm_runtime_status()}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "model": model,
+            "error": str(exc),
+            "status": get_llm_runtime_status(),
+        }
 
 
 def get_material_store() -> MaterialStore:

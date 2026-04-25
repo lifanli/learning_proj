@@ -51,6 +51,16 @@ def _summarize_error(error: str, limit: int = 320) -> str:
     return first_line
 
 
+def _result_error_message(result: Any) -> str:
+    if not isinstance(result, dict):
+        return ""
+    status = str(result.get("status") or "").lower()
+    if status not in {"error", "failed", "failure"}:
+        return ""
+    message = str(result.get("error") or result.get("message") or "Task returned an error result")
+    return _summarize_error(message)
+
+
 def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, default=str))
 
@@ -163,6 +173,15 @@ class BackgroundTaskRegistry:
                 result = func(*args, **kwargs)
                 if self.is_cancel_requested(task.id):
                     self.update(task.id, status="canceled", message=f"{kind} canceled", progress=100)
+                elif business_error := _result_error_message(result):
+                    self.update(
+                        task.id,
+                        status="failed",
+                        message=f"{kind} failed",
+                        result=result,
+                        error=business_error,
+                        progress=100,
+                    )
                 else:
                     self.update(task.id, status="succeeded", message=f"{kind} finished", result=result, progress=100)
             except Exception as exc:
@@ -263,6 +282,20 @@ class BackgroundTaskRegistry:
             handlers = set(self._handlers)
         tasks.sort(key=lambda task: task.updated_at, reverse=True)
         return [task.to_dict(include_result=False, handler_available=task.kind in handlers) for task in tasks]
+
+    def clear_finished(self) -> int:
+        """Clear terminal task history while preserving active tasks."""
+        with self._lock:
+            before = len(self._tasks)
+            self._tasks = {
+                task_id: task
+                for task_id, task in self._tasks.items()
+                if task.status in INTERRUPTIBLE_STATUSES
+            }
+            removed = before - len(self._tasks)
+            if removed:
+                self._persist_locked()
+            return removed
 
     def to_dict(self, task: TaskRecord, *, include_result: bool = True) -> dict:
         return task.to_dict(include_result=include_result, handler_available=self.has_handler(task.kind))

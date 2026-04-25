@@ -14,4 +14,5 @@ if __name__ == "__main__":
         print(f"Serving API and Vue frontend at {url}")
     else:
         print("Serving API only. Build the frontend with: cd frontend && npm run build")
-    uvicorn.run(app, host=host, port=port)
+    access_log = os.getenv("STUDY_PROJ_ACCESS_LOG", "").lower() in {"1", "true", "yes", "on"}
+    uvicorn.run(app, host=host, port=port, access_log=access_log)

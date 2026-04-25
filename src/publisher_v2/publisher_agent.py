@@ -57,6 +57,18 @@ class PublisherAgent:
         logger.info(f"[PublisherAgent] 目录规划完成: {outline.title} | {len(outline.chapters)}章")
         return outline
 
+    def _preflight_llm(self) -> None:
+        """Fail fast before scheduling hundreds of section-writing calls."""
+        reply = self.writer.llm_call(
+            "只回复 OK",
+            system="你是连通性检查助手，只需要回复 OK。",
+            enable_thinking=False,
+            temperature=0,
+            max_tokens=8,
+        )
+        if not str(reply or "").strip():
+            raise RuntimeError("LLM 返回为空")
+
     async def publish_book(
         self,
         topic: str,
@@ -67,6 +79,15 @@ class PublisherAgent:
         logger.info(f"[PublisherAgent] 开始出版: {topic}")
         report_progress(5, f"出版：开始规划 {topic}")
         raise_if_cancel_requested()
+
+        report_progress(8, "出版：检查 LLM 连接")
+        try:
+            self._preflight_llm()
+        except Exception as exc:
+            message = f"出版前 LLM 连通性检查失败：{exc}"
+            logger.error(message)
+            report_progress(100, "出版：LLM 连接失败")
+            return {"error": message, "status": "error"}
 
         outline = self.plan_book(topic, parent_id, tags)
         if not outline.chapters:

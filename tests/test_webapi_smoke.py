@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import os
 import threading
 import time
 
@@ -38,16 +39,19 @@ def test_webapi_settings_save_clears_worker_config_cache(tmp_path, monkeypatch):
     assert calls == ['cleared']
 
 
-def test_webapi_settings_endpoint_does_not_return_or_save_api_key(tmp_path, monkeypatch):
+def test_webapi_settings_endpoint_writes_api_key_to_env_not_settings(tmp_path, monkeypatch):
     config_dir = tmp_path / 'config'
     config_dir.mkdir()
     settings_path = config_dir / 'settings.yaml'
+    env_path = tmp_path / '.env'
     secret = 'dummy-test-secret-value'
     settings_path.write_text(
         'llm:\n  provider: openai\n  api_key_env: TEST_API_KEY\n  api_key: dummy-test-secret-value\n',
         encoding='utf-8',
     )
     monkeypatch.setattr(services, 'CONFIG_PATH', settings_path)
+    monkeypatch.setattr(services, 'ENV_PATH', env_path)
+    monkeypatch.delenv('TEST_API_KEY', raising=False)
 
     client = TestClient(create_app())
 
@@ -62,6 +66,62 @@ def test_webapi_settings_endpoint_does_not_return_or_save_api_key(tmp_path, monk
     assert saved.status_code == 200
     assert saved.json()['settings']['llm']['api_key'] == ''
     assert secret not in settings_path.read_text(encoding='utf-8')
+    assert env_path.read_text(encoding='utf-8') == f'TEST_API_KEY={secret}\n'
+    assert os.getenv('TEST_API_KEY') == secret
+
+
+def test_webapi_dedicated_api_key_endpoint_updates_env(tmp_path, monkeypatch):
+    config_dir = tmp_path / 'config'
+    config_dir.mkdir()
+    settings_path = config_dir / 'settings.yaml'
+    env_path = tmp_path / '.env'
+    settings_path.write_text(
+        'llm:\n  provider: openai\n  api_key_env: OLD_API_KEY\n  api_key: ""\n',
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(services, 'CONFIG_PATH', settings_path)
+    monkeypatch.setattr(services, 'ENV_PATH', env_path)
+    monkeypatch.delenv('TEST_API_KEY', raising=False)
+
+    client = TestClient(create_app())
+    response = client.put(
+        '/api/settings/llm/api-key',
+        json={'api_key_env': 'TEST_API_KEY', 'api_key': 'new-secret-value'},
+    )
+    status = client.get('/api/settings/llm')
+
+    assert response.status_code == 200
+    assert status.status_code == 200
+    assert 'TEST_API_KEY=new-secret-value' in env_path.read_text(encoding='utf-8')
+    assert os.getenv('TEST_API_KEY') == 'new-secret-value'
+    assert 'new-secret-value' not in settings_path.read_text(encoding='utf-8')
+    assert status.json()['api_key_env'] == 'TEST_API_KEY'
+    assert status.json()['env_file_key']['suffix'] == 'alue'
+
+
+def test_webapi_tasks_clear_removes_finished_tasks():
+    registry = BackgroundTaskRegistry(max_workers=1, storage_path=None)
+    app_module.registry = registry
+    app_module._register_task_handlers()
+    try:
+        task = registry.submit('test.done', lambda: {'ok': True})
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            current = registry.get(task.id)
+            if current and current.status == 'succeeded':
+                break
+            time.sleep(0.02)
+
+        client = TestClient(create_app())
+        response = client.delete('/api/tasks')
+        remaining = client.get('/api/tasks')
+
+        assert response.status_code == 200
+        assert response.json()['cleared'] == 1
+        assert remaining.json()['items'] == []
+    finally:
+        registry.shutdown()
+        app_module.registry = BackgroundTaskRegistry(storage_path=None)
 
 
 def test_webapi_system_state_redacts_api_key(tmp_path, monkeypatch):
