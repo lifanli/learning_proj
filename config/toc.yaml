@@ -1,0 +1,18 @@
+categories:
+- description: 每日 AI 领域新闻、论文速递、行业动态
+  dir_name: 00_每日资讯
+  index: '00'
+  name: 每日资讯
+- description: 深度学习、强化学习、NLP、CV 等 AI 核心理论和算法
+  dir_name: 01_AI理论与算法
+  index: '01'
+  name: AI 理论与算法
+- description: GPU、TPU、AI 芯片、推理优化、部署框架等基础设施
+  dir_name: 02_AI基础设施与硬件
+  index: '02'
+  name: AI 基础设施与硬件
+- description: AI Agent 框架、多智能体协作、自主系统及应用案例
+  dir_name: 03_智能体系统
+  index: '03'
+  name: 智能体系统
+next_category_index: 4

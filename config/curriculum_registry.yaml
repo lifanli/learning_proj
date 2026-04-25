@@ -1,0 +1,392 @@
+# 预置优质学习源注册表
+# CurriculumAgent 和 TopicExplorer 用此文件匹配主题 → 已知高质量资源
+# keywords 用于模糊匹配用户主题
+
+sources:
+  # ===== 综合课程 =====
+  - name: "HuggingFace LLM Course"
+    url: "https://huggingface.co/learn/llm-course"
+    type: course
+    language: en
+    keywords:
+      - LLM
+      - 大语言模型
+      - transformer
+      - NLP
+      - 自然语言处理
+      - 微调
+      - fine-tuning
+      - RLHF
+      - tokenizer
+
+  - name: "HuggingFace NLP Course"
+    url: "https://huggingface.co/learn/nlp-course"
+    type: course
+    language: en
+    keywords:
+      - NLP
+      - 自然语言处理
+      - HuggingFace
+      - transformers库
+      - 文本分类
+      - 命名实体识别
+
+  - name: "HuggingFace Deep RL Course"
+    url: "https://huggingface.co/learn/deep-rl-course"
+    type: course
+    language: en
+    keywords:
+      - 强化学习
+      - reinforcement learning
+      - RL
+      - PPO
+      - DQN
+      - RLHF
+
+  - name: "HuggingFace Diffusion Models Course"
+    url: "https://huggingface.co/learn/diffusion-course"
+    type: course
+    language: en
+    keywords:
+      - diffusion
+      - 扩散模型
+      - 图像生成
+      - stable diffusion
+      - DDPM
+
+  - name: "HuggingFace Audio Course"
+    url: "https://huggingface.co/learn/audio-course"
+    type: course
+    language: en
+    keywords:
+      - 语音
+      - audio
+      - ASR
+      - TTS
+      - whisper
+      - 语音识别
+
+  # ===== 框架文档 =====
+  - name: "PyTorch Documentation"
+    url: "https://docs.pytorch.org/docs/stable/index.html"
+    type: doc
+    language: en
+    keywords:
+      - PyTorch
+      - 深度学习
+      - 张量
+      - tensor
+      - 自动微分
+      - autograd
+      - 神经网络
+      - 训练
+
+  - name: "PyTorch Tutorials"
+    url: "https://docs.pytorch.org/tutorials/"
+    type: course
+    language: en
+    keywords:
+      - PyTorch
+      - 深度学习教程
+      - 入门
+      - 模型训练
+
+  - name: "Transformers Documentation"
+    url: "https://huggingface.co/docs/transformers"
+    type: doc
+    language: en
+    keywords:
+      - transformers
+      - HuggingFace
+      - 预训练模型
+      - BERT
+      - GPT
+      - pipeline
+
+  - name: "LangChain Documentation"
+    url: "https://python.langchain.com/docs/introduction/"
+    type: doc
+    language: en
+    keywords:
+      - LangChain
+      - agent
+      - 智能体
+      - RAG
+      - chain
+      - 工具调用
+      - LLM应用
+
+  - name: "LlamaIndex Documentation"
+    url: "https://docs.llamaindex.ai/en/stable/"
+    type: doc
+    language: en
+    keywords:
+      - LlamaIndex
+      - RAG
+      - 检索增强
+      - 知识库
+      - 文档问答
+      - 索引
+
+  # ===== 推理与部署 =====
+  - name: "vLLM Documentation"
+    url: "https://docs.vllm.ai/en/latest/"
+    type: doc
+    language: en
+    keywords:
+      - vLLM
+      - LLM推理
+      - serving
+      - 部署
+      - PagedAttention
+      - 推理优化
+      - 批处理
+
+  - name: "TensorRT-LLM Documentation"
+    url: "https://nvidia.github.io/TensorRT-LLM/"
+    type: doc
+    language: en
+    keywords:
+      - TensorRT
+      - NVIDIA
+      - 推理加速
+      - GPU优化
+      - 量化
+
+  - name: "Ollama Documentation"
+    url: "https://github.com/ollama/ollama"
+    type: github
+    language: en
+    keywords:
+      - Ollama
+      - 本地部署
+      - 本地运行
+      - LLM本地
+
+  # ===== 训练与微调 =====
+  - name: "DeepSpeed Documentation"
+    url: "https://www.deepspeed.ai/getting-started/"
+    type: doc
+    language: en
+    keywords:
+      - DeepSpeed
+      - 分布式训练
+      - ZeRO
+      - 混合精度
+      - 大模型训练
+
+  - name: "PEFT Documentation"
+    url: "https://huggingface.co/docs/peft"
+    type: doc
+    language: en
+    keywords:
+      - PEFT
+      - LoRA
+      - QLoRA
+      - 参数高效微调
+      - adapter
+      - 微调
+
+  - name: "TRL Documentation"
+    url: "https://huggingface.co/docs/trl"
+    type: doc
+    language: en
+    keywords:
+      - TRL
+      - RLHF
+      - DPO
+      - PPO
+      - 人类反馈
+      - 对齐
+      - alignment
+
+  # ===== Agent / Tool Use =====
+  - name: "AutoGen Documentation"
+    url: "https://microsoft.github.io/autogen/"
+    type: doc
+    language: en
+    keywords:
+      - AutoGen
+      - 多智能体
+      - multi-agent
+      - 对话
+      - 协作
+
+  - name: "CrewAI Documentation"
+    url: "https://docs.crewai.com/"
+    type: doc
+    language: en
+    keywords:
+      - CrewAI
+      - agent
+      - 智能体编排
+      - crew
+      - 任务分配
+
+  - name: "Semantic Kernel Documentation"
+    url: "https://learn.microsoft.com/en-us/semantic-kernel/overview/"
+    type: doc
+    language: en
+    keywords:
+      - Semantic Kernel
+      - 插件
+      - planner
+      - AI编排
+
+  # ===== 数据与评估 =====
+  - name: "Datasets Documentation"
+    url: "https://huggingface.co/docs/datasets"
+    type: doc
+    language: en
+    keywords:
+      - datasets
+      - 数据集
+      - 数据处理
+      - HuggingFace
+      - 数据加载
+
+  - name: "LM Evaluation Harness"
+    url: "https://github.com/EleutherAI/lm-evaluation-harness"
+    type: github
+    language: en
+    keywords:
+      - 评估
+      - benchmark
+      - 模型评测
+      - 基准测试
+
+  # ===== 经典GitHub仓库 =====
+  - name: "llama.cpp"
+    url: "https://github.com/ggerganov/llama.cpp"
+    type: github
+    language: en
+    keywords:
+      - llama.cpp
+      - GGUF
+      - CPU推理
+      - 量化
+      - 本地推理
+
+  - name: "Open-Sora"
+    url: "https://github.com/hpcaitech/Open-Sora"
+    type: github
+    language: en
+    keywords:
+      - Sora
+      - 视频生成
+      - DiT
+      - 视频模型
+
+  - name: "FastChat"
+    url: "https://github.com/lm-sys/FastChat"
+    type: github
+    language: en
+    keywords:
+      - FastChat
+      - Vicuna
+      - 对话
+      - chatbot
+      - arena
+
+  # ===== 经典论文 =====
+  - name: "Attention Is All You Need"
+    url: "https://arxiv.org/abs/1706.03762"
+    type: arxiv
+    language: en
+    keywords:
+      - transformer
+      - attention
+      - 注意力机制
+      - 自注意力
+
+  - name: "BERT"
+    url: "https://arxiv.org/abs/1810.04805"
+    type: arxiv
+    language: en
+    keywords:
+      - BERT
+      - 预训练
+      - 掩码语言模型
+      - MLM
+
+  - name: "GPT-3 (Language Models are Few-Shot Learners)"
+    url: "https://arxiv.org/abs/2005.14165"
+    type: arxiv
+    language: en
+    keywords:
+      - GPT
+      - few-shot
+      - 少样本学习
+      - 语言模型
+      - scaling
+
+  - name: "LoRA"
+    url: "https://arxiv.org/abs/2106.09685"
+    type: arxiv
+    language: en
+    keywords:
+      - LoRA
+      - 低秩适配
+      - 参数高效
+      - 微调
+
+  - name: "RAG (Retrieval-Augmented Generation)"
+    url: "https://arxiv.org/abs/2005.11401"
+    type: arxiv
+    language: en
+    keywords:
+      - RAG
+      - 检索增强生成
+      - 知识库问答
+      - retrieval
+
+  - name: "DPO (Direct Preference Optimization)"
+    url: "https://arxiv.org/abs/2305.18290"
+    type: arxiv
+    language: en
+    keywords:
+      - DPO
+      - 偏好优化
+      - 对齐
+      - RLHF替代
+
+  - name: "Chain-of-Thought Prompting"
+    url: "https://arxiv.org/abs/2201.11903"
+    type: arxiv
+    language: en
+    keywords:
+      - CoT
+      - 思维链
+      - chain of thought
+      - 推理
+      - prompt
+
+  - name: "Flash Attention"
+    url: "https://arxiv.org/abs/2205.14135"
+    type: arxiv
+    language: en
+    keywords:
+      - flash attention
+      - IO感知
+      - 注意力优化
+      - 长序列
+
+  - name: "LLaMA"
+    url: "https://arxiv.org/abs/2302.13971"
+    type: arxiv
+    language: en
+    keywords:
+      - LLaMA
+      - Meta
+      - 开源大模型
+      - 基础模型
+
+  - name: "Mixture of Experts (Switch Transformer)"
+    url: "https://arxiv.org/abs/2101.03961"
+    type: arxiv
+    language: en
+    keywords:
+      - MoE
+      - 混合专家
+      - switch transformer
+      - 稀疏模型

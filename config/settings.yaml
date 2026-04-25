@@ -1,0 +1,44 @@
+llm:
+  provider: openai
+  api_mode: chat_completions
+  api_key_env: DASHSCOPE_API_KEY
+  api_key: ''
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: qwen3.6-max-preview
+  max_tokens: 4096
+  vision_max_tokens: 4096
+  enable_thinking: true
+  anthropic:
+    thinking_budget_tokens: 10000
+    max_tokens: 8192
+models:
+  fast: qwen3.6-plus
+  deep: qwen3.6-max-preview
+  vision: qwen3.6-plus
+paths:
+  knowledge_base: knowledge_base
+  data: data
+  materials: data/materials
+language:
+  target: Chinese
+  translation_prompt: If the following content is not in Chinese, translate it into
+    professional Chinese. If it is already Chinese, output it directly.
+student:
+  max_concurrent_fetches: 10
+  image_download: true
+  image_interpret: true
+  follow_references: true
+  max_reference_depth: 2
+publisher:
+  min_section_words: 500
+  max_section_words: 3000
+  include_code_annotations: true
+  include_images: true
+  quality_review: true
+  max_context_chars: 5000
+  max_concurrent_sections: 3
+  writer_chunk_chars: 6000
+  writer_overlap_chars: 500
+  writer_partial_max_tokens: 2200
+  writer_merge_max_tokens: 3200
+  writer_polish_max_tokens: 3200
