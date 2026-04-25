@@ -1,21 +1,37 @@
+# Web API and runtime
+fastapi
+uvicorn[standard]
+pydantic
 python-dotenv
+PyYAML
+
+# LLM providers
 openai
-pyyaml
+anthropic
+
+# Fetching, parsing, and research sources
 requests
 beautifulsoup4
 markdown
 arxiv
-pymupdf
+PyMuPDF
 duckduckgo-search
 PyGithub
-lightrag
+aiohttp
+
+# RAG and data processing
+lightrag-hku
 networkx
 numpy
 pandas
 scikit-learn
 tqdm
-aiohttp
+
+# Legacy/local UI and async helpers
 streamlit
 nest_asyncio
-fastapi
-uvicorn[standard]
+
+# Tests
+pytest
+pytest-asyncio
+httpx
