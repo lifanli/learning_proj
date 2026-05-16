@@ -213,7 +213,10 @@ class PublisherAgent:
         material_ids = section.get("material_ids", [])
         description = section.get("description", "")
 
-        materials_data = self._retrieve_materials(material_ids)
+        materials_data = self._retrieve_materials(
+            material_ids,
+            material_slices=section.get("material_slices", []),
+        )
         combined_content = self._combine_materials(materials_data)
         if not combined_content:
             logger.warning(f"章节 {sec_title} 无可用素材，跳过")
@@ -340,27 +343,57 @@ class PublisherAgent:
 
         return await self.publish_book(topic=topic, parent_id=parent_id)
 
-    def _retrieve_materials(self, material_ids: list) -> list:
+    def _retrieve_materials(self, material_ids: list, material_slices: list = None) -> list:
         materials = []
+        slices_by_id = {}
+        for item in material_slices or []:
+            mid = item.get("id")
+            if mid:
+                slices_by_id.setdefault(mid, []).append(item)
+
         for mid in material_ids:
             mat = self.store.get(mid)
-            if mat:
-                materials.append(
-                    {
-                        "id": mat.id,
-                        "title": mat.title,
-                        "content": mat.content,
-                        "source_type": mat.source_type,
-                        "source_url": mat.source_url,
-                        "images": mat.images,
-                        "code_blocks": mat.code_blocks,
-                        "references": mat.references,
-                        "terms": mat.terms,
-                        "tags": mat.tags,
-                        "metadata": mat.metadata,
-                    }
-                )
+            if not mat:
+                continue
+
+            slices = slices_by_id.get(mid)
+            if not slices:
+                materials.append(self._material_to_dict(mat))
+                continue
+
+            for slice_info in slices:
+                start = max(0, int(slice_info.get("start") or 0))
+                end = int(slice_info.get("end") or len(mat.content or ""))
+                end = min(len(mat.content or ""), max(start, end))
+                sliced = self._material_to_dict(mat)
+                sliced["content"] = (mat.content or "")[start:end]
+                sliced["metadata"] = {
+                    **(sliced.get("metadata") or {}),
+                    "content_slice": {
+                        "start": start,
+                        "end": end,
+                        "part": slice_info.get("part"),
+                        "total_parts": slice_info.get("total_parts"),
+                    },
+                }
+                materials.append(sliced)
         return materials
+
+    @staticmethod
+    def _material_to_dict(mat) -> dict:
+        return {
+            "id": mat.id,
+            "title": mat.title,
+            "content": mat.content,
+            "source_type": mat.source_type,
+            "source_url": mat.source_url,
+            "images": mat.images,
+            "code_blocks": mat.code_blocks,
+            "references": mat.references,
+            "terms": mat.terms,
+            "tags": mat.tags,
+            "metadata": mat.metadata,
+        }
 
     @staticmethod
     def _combine_materials(materials: list) -> str:
@@ -388,10 +421,20 @@ class PublisherAgent:
         source_type = material.get("source_type") or "unknown"
         source_url = material.get("source_url") or ""
         references = material.get("references") or []
+        content_slice = (material.get("metadata") or {}).get("content_slice", {})
 
         lines.append(f"来源类型: {source_type}")
         if source_url:
             lines.append(f"来源链接: {source_url}")
+        if content_slice:
+            part = content_slice.get("part")
+            total = content_slice.get("total_parts")
+            if part and total:
+                lines.append(f"素材范围: 第 {part}/{total} 部分")
+            else:
+                lines.append(
+                    f"素材范围: 字符 {content_slice.get('start', 0)}-{content_slice.get('end', 0)}"
+                )
 
         if references:
             lines.append("参考引用:")

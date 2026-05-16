@@ -11,6 +11,7 @@
 """
 
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import List, Optional, Generator, Tuple, Union
 from urllib.parse import urlparse
@@ -179,9 +180,9 @@ class LLMClient:
         self, messages, model, stream, enable_thinking,
         temperature, timeout, max_tokens,
     ):
-        extra_body = {}
-        if enable_thinking:
-            extra_body["enable_thinking"] = True
+        extra_body = self._openai_extra_body(enable_thinking)
+        if not extra_body:
+            extra_body = {}
 
         llm_cfg = self._config.get("llm", {})
         effective_max_tokens = max_tokens or llm_cfg.get("max_tokens")
@@ -256,6 +257,9 @@ class LLMClient:
         effective_max_tokens = max_tokens or llm_cfg.get("vision_max_tokens") or llm_cfg.get("max_tokens")
         if effective_max_tokens is not None:
             kwargs["max_tokens"] = effective_max_tokens
+        extra_body = self._openai_extra_body(False)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
 
         response = self.client.chat.completions.create(**kwargs)
         choice = response.choices[0]
@@ -406,6 +410,14 @@ class LLMClient:
         if path in {"", "/"}:
             normalized = normalized + "/v1"
         return normalized
+
+    def _openai_extra_body(self, enable_thinking: bool) -> dict:
+        """Build provider-specific extra_body for OpenAI-compatible gateways."""
+        llm_cfg = self._config.get("llm", {})
+        extra_body = deepcopy(llm_cfg.get("extra_body") or {})
+        if enable_thinking:
+            extra_body["enable_thinking"] = True
+        return extra_body
 
     @staticmethod
     def _extract_system_for_anthropic(messages: List[dict]):

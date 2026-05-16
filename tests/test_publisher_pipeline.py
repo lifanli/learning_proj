@@ -6,6 +6,8 @@ import pytest
 
 from src.core.progress import reset_progress_reporter, set_progress_reporter
 from src.core.llm_client import LLMClient
+from src.core.material_store import Material, MaterialStore
+from src.core.worker import WorkerInput
 from src.publisher_v2.book_planner import BookOutline, BookPlanner
 from src.publisher_v2.publisher_agent import PublisherAgent
 from src.publisher_v2.workers.section_writer import SectionWriter
@@ -52,6 +54,102 @@ class TestBookPlannerCoverage:
         assert appendix["sections"][0]["material_ids"] == ["m2"]
         assert fixed.metadata["coverage"]["auto_assigned_materials"] == 1
 
+    def test_fallback_outline_groups_materials_and_splits_long_sources(self):
+        planner = object.__new__(BookPlanner)
+        planner.config = {
+            "publisher": {
+                "fallback_max_sections_per_chapter": 3,
+                "fallback_long_material_chunk_chars": 1000,
+            }
+        }
+        summaries = [
+            {
+                "id": f"m{i}",
+                "summary": f"[web] FlashAttention inference material {i}",
+                "title": f"FlashAttention inference material {i}",
+                "source_type": "web",
+                "tags": ["inference"],
+                "content_chars": 500,
+            }
+            for i in range(7)
+        ]
+        summaries.append({
+            "id": "long",
+            "summary": "[arxiv] Long PEFT survey",
+            "title": "PEFT A2Z long survey",
+            "source_type": "arxiv",
+            "tags": ["fine-tuning"],
+            "content_chars": 2500,
+        })
+
+        outline = planner._fallback_outline("大模型全栈工程师", summaries)
+
+        assert outline.metadata["fallback"] is True
+        assert len(outline.chapters) > 1
+        assert all(len(chapter["sections"]) <= 3 for chapter in outline.chapters)
+        sliced_sections = [
+            section
+            for chapter in outline.chapters
+            for section in chapter["sections"]
+            if section.get("material_slices")
+        ]
+        assert len(sliced_sections) == 3
+        assert sliced_sections[0]["material_slices"][0]["id"] == "long"
+
+    def test_fallback_outline_limits_single_publish_batch(self):
+        planner = object.__new__(BookPlanner)
+        planner.config = {
+            "publisher": {
+                "fallback_max_materials": 5,
+                "fallback_max_sections_per_chapter": 3,
+            }
+        }
+        summaries = [
+            {
+                "id": f"m{i}",
+                "summary": f"[web] material {i}",
+                "title": f"material {i}",
+                "source_type": "web",
+                "tags": [],
+                "content_chars": 1000,
+            }
+            for i in range(9)
+        ]
+
+        outline = planner._fallback_outline("批次测试", summaries)
+        assigned = [
+            material_id
+            for chapter in outline.chapters
+            for section in chapter["sections"]
+            for material_id in section["material_ids"]
+        ]
+
+        assert len(assigned) == 5
+        assert len(outline.metadata["deferred_materials"]) == 4
+        assert outline.metadata["selected_materials"] == 5
+
+
+class TestPublisherAgentMaterialSlices:
+    def test_retrieve_materials_applies_content_slices(self, tmp_path):
+        store = MaterialStore(str(tmp_path / "materials"))
+        material_id = store.save(Material(
+            source_url="https://example.com/long",
+            source_type="web",
+            title="Long Material",
+            content="0123456789" * 20,
+        ))
+        agent = object.__new__(PublisherAgent)
+        agent.store = store
+
+        materials = agent._retrieve_materials(
+            [material_id],
+            material_slices=[{"id": material_id, "start": 10, "end": 30, "part": 1, "total_parts": 4}],
+        )
+
+        assert len(materials) == 1
+        assert materials[0]["content"] == ("0123456789" * 20)[10:30]
+        assert materials[0]["metadata"]["content_slice"]["part"] == 1
+
 
 class TestSectionWriterChunking:
     def test_split_material_content_produces_multiple_chunks(self):
@@ -61,6 +159,85 @@ class TestSectionWriterChunking:
 
         assert len(chunks) > 1
         assert all(chunk.strip() for chunk in chunks)
+
+    def test_write_chunk_retries_truncated_output(self):
+        writer = object.__new__(SectionWriter)
+        calls = []
+
+        def fake_llm_call(prompt, **kwargs):
+            calls.append(prompt)
+            if len(calls) == 1:
+                raise RuntimeError("LLM response was truncated by output/context limit: length")
+            return "## 重写后的完整分稿\n\n关键内容已经保留。"
+
+        writer.llm_call = fake_llm_call
+
+        draft = writer._write_chunk(
+            system_prompt="system",
+            chapter_title="章",
+            section_title="节",
+            outline_text="- 大纲",
+            chunk="素材内容" * 200,
+            chunk_index=1,
+            chunk_count=1,
+            images_text="",
+            code_text="",
+            min_section_words=100,
+            max_section_words=1000,
+            max_tokens=800,
+        )
+
+        assert "重写后的完整分稿" in draft
+        assert len(calls) == 2
+        assert "重要重试要求" in calls[1]
+
+    def test_polish_truncation_keeps_merged_text(self):
+        writer = object.__new__(SectionWriter)
+        writer.llm_call = MagicMock(side_effect=RuntimeError(
+            "LLM response was truncated by output/context limit: length"
+        ))
+
+        merged = "## 已合并正文\n\n这些内容不能丢。"
+        result = writer._polish_section(
+            merged_text=merged,
+            system_prompt="system",
+            chapter_title="章",
+            section_title="节",
+            outline_text="- 大纲",
+            images_text="",
+            code_text="",
+            min_section_words=100,
+            max_section_words=1000,
+            max_tokens=800,
+        )
+
+        assert result == merged
+
+    def test_execute_direct_assembles_many_chunks(self):
+        writer = object.__new__(SectionWriter)
+        writer.config = {
+            "publisher": {
+                "writer_chunk_chars": 100,
+                "writer_overlap_chars": 0,
+                "writer_partial_max_tokens": 800,
+                "writer_merge_max_tokens": 800,
+                "writer_polish_max_tokens": 800,
+                "writer_direct_assemble_chunk_threshold": 1,
+                "min_section_words": 50,
+                "max_section_words": 500,
+            }
+        }
+        writer.llm_call = MagicMock(return_value="## 分段正文\n\n这里是详细解释。")
+
+        output = writer.execute(WorkerInput(
+            content="\n\n".join(["素材段落" * 30 for _ in range(4)]),
+            metadata={"chapter_title": "章", "section_title": "节"},
+            extra={"outline": ["大纲"], "content_type": "default"},
+        ))
+
+        assert output.success is True
+        assert "分段精读" in output.content
+        assert "direct_assembled_from_many_chunks" in output.data["quality_flags"]
 
 
 class TestPublisherAgentReport:

@@ -90,6 +90,7 @@ class SectionWriter(BaseWorker):
         polish_max_tokens = pub_cfg.get("writer_polish_max_tokens", 3200)
         min_section_words = pub_cfg.get("min_section_words", 500)
         max_section_words = pub_cfg.get("max_section_words", 3000)
+        direct_assemble_threshold = pub_cfg.get("writer_direct_assemble_chunk_threshold", 4)
 
         outline_text = "\n".join(f"- {p}" for p in outline) if outline else "- 请自行设计结构并保证逻辑完整"
         images_text = self._build_images_text(images)
@@ -115,27 +116,32 @@ class SectionWriter(BaseWorker):
                 )
                 partial_drafts.append(draft)
 
-            merged = self._merge_partials(
-                partial_drafts=partial_drafts,
-                system_prompt=system_prompt,
-                chapter_title=chapter_title,
-                section_title=section_title,
-                outline_text=outline_text,
-                max_tokens=merge_max_tokens,
-            )
+            quality_flags = []
+            if len(chunks) > direct_assemble_threshold:
+                final_text = self._assemble_chunk_drafts(partial_drafts, section_title)
+                quality_flags.append("direct_assembled_from_many_chunks")
+            else:
+                merged = self._merge_partials(
+                    partial_drafts=partial_drafts,
+                    system_prompt=system_prompt,
+                    chapter_title=chapter_title,
+                    section_title=section_title,
+                    outline_text=outline_text,
+                    max_tokens=merge_max_tokens,
+                )
 
-            final_text = self._polish_section(
-                merged_text=merged,
-                system_prompt=system_prompt,
-                chapter_title=chapter_title,
-                section_title=section_title,
-                outline_text=outline_text,
-                images_text=images_text,
-                code_text=code_text,
-                min_section_words=min_section_words,
-                max_section_words=max_section_words,
-                max_tokens=polish_max_tokens,
-            )
+                final_text = self._polish_section(
+                    merged_text=merged,
+                    system_prompt=system_prompt,
+                    chapter_title=chapter_title,
+                    section_title=section_title,
+                    outline_text=outline_text,
+                    images_text=images_text,
+                    code_text=code_text,
+                    min_section_words=min_section_words,
+                    max_section_words=max_section_words,
+                    max_tokens=polish_max_tokens,
+                )
 
             metrics = self._collect_metrics(
                 source_text=material_content,
@@ -143,6 +149,7 @@ class SectionWriter(BaseWorker):
                 partial_drafts=partial_drafts,
                 min_section_words=min_section_words,
             )
+            metrics["quality_flags"] = list(dict.fromkeys(metrics.get("quality_flags", []) + quality_flags))
 
             return WorkerOutput(
                 success=True,
@@ -168,8 +175,9 @@ class SectionWriter(BaseWorker):
         min_section_words: int,
         max_section_words: int,
         max_tokens: int,
+        split_depth: int = 0,
     ) -> str:
-        target_words = max(300, math.ceil(max_section_words / max(1, chunk_count)))
+        target_words = max(220, min(900, math.ceil(max_section_words / max(1, chunk_count))))
         prompt = f"""请基于当前素材片段，为技术书籍章节撰写一份可合并的高质量分稿。
 
 ## 章节信息
@@ -197,12 +205,46 @@ class SectionWriter(BaseWorker):
 5. 目标篇幅约 {target_words} 字，宁可信息密实，也不要空话
 6. 如果引用论文、仓库、课程或外部资料，请在相关段落中自然注明来源标题或来源类型
 7. 结尾不要写“本片段结束”“待续”之类的话"""
-        return self.llm_call(
-            prompt,
-            system=system_prompt,
-            enable_thinking=True,
-            max_tokens=max_tokens,
-        ).strip()
+        try:
+            return self._llm_call_with_truncation_retry(
+                prompt,
+                system=system_prompt,
+                enable_thinking=True,
+                max_tokens=max_tokens,
+                compact_instruction=f"上一版输出被截断。请保留关键事实，但压缩到 {max(180, target_words // 2)} 字以内。",
+            ).strip()
+        except Exception as exc:
+            if self._is_truncation_error(exc) and split_depth < 2 and len(chunk) > 1600:
+                logger.warning(
+                    f"[SectionWriter] 片段 {chunk_index}/{chunk_count} 输出仍被截断，"
+                    f"继续拆分输入后重写"
+                )
+                sub_chunks = self._split_material_content(
+                    chunk,
+                    chunk_chars=max(900, len(chunk) // 2),
+                    overlap_chars=0,
+                )
+                if len(sub_chunks) > 1:
+                    sub_drafts = [
+                        self._write_chunk(
+                            system_prompt=system_prompt,
+                            chapter_title=chapter_title,
+                            section_title=section_title,
+                            outline_text=outline_text,
+                            chunk=sub_chunk,
+                            chunk_index=sub_idx,
+                            chunk_count=len(sub_chunks),
+                            images_text=images_text,
+                            code_text=code_text,
+                            min_section_words=min_section_words,
+                            max_section_words=max_section_words,
+                            max_tokens=max_tokens,
+                            split_depth=split_depth + 1,
+                        )
+                        for sub_idx, sub_chunk in enumerate(sub_chunks, start=1)
+                    ]
+                    return "\n\n".join(draft for draft in sub_drafts if draft.strip())
+            raise
 
     def _merge_partials(
         self,
@@ -270,12 +312,19 @@ class SectionWriter(BaseWorker):
 3. 调整段落顺序，让逻辑更顺
 4. 不要丢失关键事实、代码说明和案例
 5. 不要出现“分稿1”“分稿2”等痕迹"""
-        return self.llm_call(
-            prompt,
-            system=system_prompt,
-            enable_thinking=True,
-            max_tokens=max_tokens,
-        ).strip()
+        try:
+            return self._llm_call_with_truncation_retry(
+                prompt,
+                system=system_prompt,
+                enable_thinking=True,
+                max_tokens=max_tokens,
+                compact_instruction="上一版合并稿被截断。请只做去重和结构整理，不要扩写。",
+            ).strip()
+        except Exception as exc:
+            if self._is_truncation_error(exc):
+                logger.warning("[SectionWriter] 合并分稿被截断，使用确定性拼接保留内容")
+                return self._deterministic_merge(batch)
+            raise
 
     def _polish_section(
         self,
@@ -316,12 +365,19 @@ class SectionWriter(BaseWorker):
 5. 结尾必须有一个简短小结
 6. 控制在 {min_section_words}-{max_section_words} 字范围内
 7. 不要输出与章节无关的前言或免责声明"""
-        return self.llm_call(
-            prompt,
-            system=system_prompt,
-            enable_thinking=True,
-            max_tokens=max_tokens,
-        ).strip()
+        try:
+            return self._llm_call_with_truncation_retry(
+                prompt,
+                system=system_prompt,
+                enable_thinking=True,
+                max_tokens=max_tokens,
+                compact_instruction="上一版润色稿被截断。请只修正结构和病句，不要扩写。",
+            ).strip()
+        except Exception as exc:
+            if self._is_truncation_error(exc):
+                logger.warning("[SectionWriter] 最终润色被截断，保留合并稿避免整节失败")
+                return merged_text
+            raise
 
     @staticmethod
     def _split_material_content(content: str, chunk_chars: int, overlap_chars: int) -> List[str]:
@@ -372,6 +428,59 @@ class SectionWriter(BaseWorker):
             comment = cb.get("comment", "")
             blocks.append(f"```{lang}\n{code}\n```\n{comment}".strip())
         return "\n\n".join(blocks)
+
+    @staticmethod
+    def _assemble_chunk_drafts(partial_drafts: List[str], section_title: str) -> str:
+        drafts = [draft.strip() for draft in partial_drafts if draft and draft.strip()]
+        if not drafts:
+            return ""
+        parts = [f"## {section_title}"]
+        for idx, draft in enumerate(drafts, start=1):
+            cleaned = re.sub(r"^##+\s+", "### ", draft, flags=re.MULTILINE).strip()
+            parts.append(f"### {idx}. 分段精读\n\n{cleaned}")
+        parts.append("### 小结\n\n本节按照素材顺序完成分段精读，保留了各片段中的关键概念、实现细节和来源线索。")
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _deterministic_merge(batch: List[str]) -> str:
+        parts = []
+        for idx, draft in enumerate(batch, start=1):
+            cleaned = re.sub(r"^##+\s+", "### ", (draft or "").strip(), flags=re.MULTILINE)
+            if cleaned:
+                parts.append(f"### 合并片段 {idx}\n\n{cleaned}")
+        return "\n\n".join(parts)
+
+    def _llm_call_with_truncation_retry(
+        self,
+        prompt: str,
+        system: str,
+        enable_thinking: bool,
+        max_tokens: int,
+        compact_instruction: str,
+    ) -> str:
+        try:
+            return self.llm_call(
+                prompt,
+                system=system,
+                enable_thinking=enable_thinking,
+                max_tokens=max_tokens,
+            )
+        except Exception as exc:
+            if not self._is_truncation_error(exc):
+                raise
+            logger.warning(f"[SectionWriter] LLM 输出被截断，尝试紧凑重写: {exc}")
+            retry_prompt = f"{prompt}\n\n## 重要重试要求\n{compact_instruction}"
+            return self.llm_call(
+                retry_prompt,
+                system=system,
+                enable_thinking=enable_thinking,
+                max_tokens=max_tokens,
+            )
+
+    @staticmethod
+    def _is_truncation_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return "truncated" in text or "finish_reason" in text or "length" in text or "max_tokens" in text
 
     @staticmethod
     def _estimate_length_units(text: str) -> int:

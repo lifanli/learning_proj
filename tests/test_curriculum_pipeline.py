@@ -16,6 +16,25 @@ class TestLlmClientBaseUrlNormalization:
         assert LLMClient._normalize_openai_base_url("https://api.example.com/v1") == "https://api.example.com/v1"
         assert LLMClient._normalize_openai_base_url("https://api.example.com/openai/v1") == "https://api.example.com/openai/v1"
 
+    def test_openai_extra_body_merges_provider_options_with_thinking_flag(self):
+        client = LLMClient(
+            {
+                "llm": {
+                    "extra_body": {
+                        "chat_template_kwargs": {"enable_thinking": False},
+                    }
+                }
+            }
+        )
+
+        assert client._openai_extra_body(False) == {
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        assert client._openai_extra_body(True) == {
+            "chat_template_kwargs": {"enable_thinking": False},
+            "enable_thinking": True,
+        }
+
 
 class TestLlmClientApiKeyResolution:
     def test_project_env_overrides_stale_process_env(self, tmp_path, monkeypatch):

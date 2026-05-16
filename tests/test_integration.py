@@ -243,6 +243,7 @@ async def test_publish_book_integration(tmp_path, monkeypatch):
     )
     publisher.planner = MagicMock()
     publisher.planner.plan_book = MagicMock(return_value=mock_outline)
+    publisher._preflight_llm = MagicMock()
 
     # Mock LLM workers
     publisher.outline_planner = MockWorker("outline", output_data={"outline": ["引言", "核心概念", "小结"]})

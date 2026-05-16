@@ -51,6 +51,34 @@ PRESETS: Dict[str, dict] = {
             "vision 先预留 qwen3.6-plus，后续再接入多模态测试。",
         ],
     },
+    "xiaomi_mimo": {
+        "label": "小米 MiMo（OpenAI 兼容接口）",
+        "llm": {
+            "provider": "openai",
+            "api_mode": "chat_completions",
+            "api_key_env": "XIAOMI_MIMO_API_KEY",
+            "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+            "model": "mimo-v2.5-pro",
+            "max_tokens": 4096,
+            "vision_max_tokens": 4096,
+            "enable_thinking": False,
+            "extra_body": {
+                "chat_template_kwargs": {
+                    "enable_thinking": False,
+                },
+            },
+        },
+        "models": {
+            "fast": "mimo-v2.5",
+            "deep": "mimo-v2.5-pro",
+            "vision": "mimo-v2-omni",
+        },
+        "notes": [
+            "OpenAI 兼容地址为 https://token-plan-cn.xiaomimimo.com/v1。",
+            "默认关闭思考输出，避免 chat.completions 只返回 reasoning_content 而正文为空。",
+            "fast 使用 mimo-v2.5，deep 使用 mimo-v2.5-pro，vision 预留 mimo-v2-omni。",
+        ],
+    },
     "anthropic_claude": {
         "label": "Anthropic Claude",
         "llm": {
@@ -87,6 +115,8 @@ def detect_preset(settings: dict) -> str:
 
     if provider == "anthropic":
         return "anthropic_claude"
+    if base_url == "https://token-plan-cn.xiaomimimo.com/v1" or api_key_env == "XIAOMI_MIMO_API_KEY":
+        return "xiaomi_mimo"
     if base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1" or api_key_env == "DASHSCOPE_API_KEY":
         return "dashscope_qwen"
     return "custom_openai"

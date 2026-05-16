@@ -1,20 +1,20 @@
 llm:
   provider: openai
   api_mode: chat_completions
-  api_key_env: DASHSCOPE_API_KEY
+  api_key_env: XIAOMI_MIMO_API_KEY
   api_key: ''
-  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-  model: qwen3.6-max-preview
+  base_url: https://token-plan-cn.xiaomimimo.com/v1
+  model: mimo-v2.5-pro
   max_tokens: 4096
   vision_max_tokens: 4096
-  enable_thinking: true
-  anthropic:
-    thinking_budget_tokens: 10000
-    max_tokens: 8192
+  enable_thinking: false
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
 models:
-  fast: qwen3.6-plus
-  deep: qwen3.6-max-preview
-  vision: qwen3.6-plus
+  fast: mimo-v2.5
+  deep: mimo-v2.5-pro
+  vision: mimo-v2-omni
 paths:
   knowledge_base: knowledge_base
   data: data

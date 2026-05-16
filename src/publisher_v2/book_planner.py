@@ -6,6 +6,8 @@
 
 import re
 import yaml
+import math
+from collections import OrderedDict
 from typing import List, Dict, Optional
 from dataclasses import dataclass, field
 
@@ -29,6 +31,12 @@ class BookOutline:
 
 class BookPlanner(BaseWorker):
     """全书三级目录规划"""
+
+    DEFAULT_FALLBACK_MAX_MATERIALS = 30
+    DEFAULT_LONG_MATERIAL_CHARS = 120000
+    DEFAULT_GROUP_LONG_MATERIAL_CHARS = 24000
+    DEFAULT_MAX_SECTIONS_PER_CHAPTER = 10
+    DEFAULT_SECTION_MATERIALS = 2
 
     def __init__(self):
         super().__init__(WorkerSpec(
@@ -65,6 +73,8 @@ class BookPlanner(BaseWorker):
         material_summaries = []
         priority_view = []
         for mat in materials:
+            full_mat = store.get(mat.id) if hasattr(store, "get") and mat.id else None
+            content_chars = len((full_mat.content if full_mat else mat.content) or "")
             summary = f"[{mat.source_type}] {mat.title}"
             if mat.tags:
                 summary += f" | 标签: {', '.join(mat.tags)}"
@@ -77,13 +87,23 @@ class BookPlanner(BaseWorker):
             summary += " | 可出版" if readiness.get("ready_for_publish") else " | 待整理"
             if mat.summary:
                 summary += f" | {mat.summary[:100]}"
-            material_summaries.append({"id": mat.id, "summary": summary})
+            material_summaries.append({
+                "id": mat.id,
+                "summary": summary,
+                "title": mat.title,
+                "source_type": mat.source_type,
+                "tags": list(mat.tags or []),
+                "quality_score": score or 0,
+                "ready_for_publish": bool(readiness.get("ready_for_publish")),
+                "content_chars": content_chars,
+            })
             priority_view.append(
                 {
                     "id": mat.id,
                     "title": mat.title,
                     "quality_score": score or 0,
                     "ready_for_publish": bool(readiness.get("ready_for_publish")),
+                    "content_chars": content_chars,
                 }
             )
 
@@ -200,19 +220,29 @@ chapters:
             return BookOutline(title="未命名")
 
     def _fallback_outline(self, topic: str, summaries: list) -> BookOutline:
-        """降级目录：按素材顺序排列"""
-        outline = BookOutline(title=topic)
-        chapter = {
-            "title": f"第1章 {topic}",
-            "sections": []
-        }
-        for i, ms in enumerate(summaries):
-            chapter["sections"].append({
-                "title": f"1.{i+1} {ms['summary'][:30]}",
-                "material_ids": [ms["id"]],
-                "description": ms["summary"],
-            })
-        outline.chapters.append(chapter)
+        """降级目录：确定性主题分组，避免退化成单章数百小节。"""
+        max_materials = self._publisher_cfg().get(
+            "fallback_max_materials",
+            self.DEFAULT_FALLBACK_MAX_MATERIALS,
+        )
+        selected_summaries = summaries[:max_materials]
+        deferred_summaries = summaries[max_materials:]
+        outline = BookOutline(
+            title=topic,
+            description="自动按素材主题分组生成的出版目录",
+            metadata={
+                "fallback": True,
+                "fallback_reason": "llm_planning_unavailable",
+                "strategy": "deterministic_topic_grouping",
+                "total_materials": len(summaries),
+                "selected_materials": len(selected_summaries),
+                "deferred_materials": [
+                    {"id": ms.get("id"), "title": ms.get("title") or ms.get("summary", "")[:80]}
+                    for ms in deferred_summaries
+                ],
+            },
+        )
+        outline.chapters = self._build_fallback_chapters(topic, selected_summaries, start_chapter=1)
         return outline
 
     def _ensure_all_materials_assigned(self, outline: BookOutline, summaries: list) -> BookOutline:
@@ -228,27 +258,191 @@ chapters:
             outline.metadata["coverage"] = {"total_materials": len(all_ids), "assigned_materials": len(assigned)}
             return outline
 
-        logger.warning(f"目录规划漏分配 {len(missing_ids)} 条素材，已自动追加补齐章节")
-        appendix = {
-            "title": "补充素材精读",
-            "sections": [],
-        }
+        logger.warning(f"目录规划漏分配 {len(missing_ids)} 条素材，已自动按主题追加补齐章节")
         summary_by_id = {ms["id"]: ms["summary"] for ms in summaries}
-        for idx, material_id in enumerate(missing_ids, start=1):
-            summary = summary_by_id.get(material_id, material_id)
-            appendix["sections"].append({
-                "title": f"补充 {idx}: {summary[:32]}",
-                "material_ids": [material_id],
-                "description": summary,
-            })
-
-        outline.chapters.append(appendix)
+        missing_summaries = [
+            {**ms, "summary": summary_by_id.get(ms["id"], ms.get("summary", ms["id"]))}
+            for ms in summaries
+            if ms["id"] in missing_ids
+        ]
+        if len(missing_summaries) <= self._publisher_cfg().get("fallback_max_sections_per_chapter", self.DEFAULT_MAX_SECTIONS_PER_CHAPTER):
+            appendix = {
+                "title": "补充素材精读",
+                "sections": self._build_sections_for_summaries(
+                    missing_summaries,
+                    chapter_index=len(outline.chapters) + 1,
+                ),
+            }
+            outline.chapters.append(appendix)
+        else:
+            outline.chapters.extend(
+                self._build_fallback_chapters(
+                    "补充素材精读",
+                    missing_summaries,
+                    start_chapter=len(outline.chapters) + 1,
+                )
+            )
         outline.metadata["coverage"] = {
             "total_materials": len(all_ids),
             "assigned_materials": len(all_ids),
             "auto_assigned_materials": len(missing_ids),
+            "auto_assignment_strategy": "deterministic_topic_grouping",
         }
         return outline
+
+    def _build_fallback_chapters(self, topic: str, summaries: list, start_chapter: int = 1) -> List[Dict]:
+        clusters = self._cluster_summaries(summaries)
+        chapters = []
+        chapter_index = start_chapter
+        max_sections = self._publisher_cfg().get(
+            "fallback_max_sections_per_chapter",
+            self.DEFAULT_MAX_SECTIONS_PER_CHAPTER,
+        )
+
+        for label, items in clusters.items():
+            section_items = self._expand_long_materials(items)
+            for offset in range(0, len(section_items), max_sections):
+                batch = section_items[offset:offset + max_sections]
+                suffix = ""
+                if len(section_items) > max_sections:
+                    suffix = f"（{offset // max_sections + 1}）"
+                chapters.append({
+                    "title": f"第{chapter_index}章 {label}{suffix}",
+                    "sections": self._build_sections_for_summaries(batch, chapter_index),
+                })
+                chapter_index += 1
+
+        return chapters or [{"title": f"第{start_chapter}章 {topic}", "sections": []}]
+
+    def _cluster_summaries(self, summaries: list) -> "OrderedDict[str, list]":
+        clusters: "OrderedDict[str, list]" = OrderedDict()
+        for ms in summaries:
+            label = self._cluster_label(ms)
+            clusters.setdefault(label, []).append(ms)
+        return clusters
+
+    def _cluster_label(self, summary: dict) -> str:
+        title = str(summary.get("title") or summary.get("summary") or "")
+        tags = [str(tag) for tag in summary.get("tags", []) if tag]
+        source_type = str(summary.get("source_type") or "素材")
+        haystack = " ".join(tags + [title]).lower()
+
+        rules = [
+            ("模型基础与架构", ("transformer", "attention", "mamba", "moe", "architecture", "架构", "注意力")),
+            ("大模型训练与微调", ("training", "fine-tuning", "finetune", "peft", "lora", "dpo", "训练", "微调")),
+            ("推理优化与部署", ("inference", "serving", "deployment", "flashattention", "speculative", "推理", "部署", "加速")),
+            ("智能体与应用开发", ("agent", "rag", "tool", "workflow", "application", "智能体", "应用")),
+            ("工程框架与代码实践", ("github", "repository", "repo", "code", "framework", "代码", "工程")),
+            ("论文与前沿研究", ("arxiv", "paper", "survey", "论文", "研究")),
+            ("课程与教程资料", ("course", "tutorial", "lesson", "教程", "课程")),
+        ]
+        for label, keywords in rules:
+            if any(keyword in haystack for keyword in keywords):
+                return label
+
+        source_labels = {
+            "arxiv": "论文与前沿研究",
+            "github": "工程框架与代码实践",
+            "course": "课程与教程资料",
+            "course_page": "课程与教程资料",
+            "doc_page": "文档与参考资料",
+            "web": "网页资料精读",
+        }
+        return source_labels.get(source_type, "补充资料精读")
+
+    def _expand_long_materials(self, summaries: list) -> list:
+        expanded = []
+        chunk_chars = self._publisher_cfg().get(
+            "fallback_long_material_chunk_chars",
+            self.DEFAULT_LONG_MATERIAL_CHARS,
+        )
+        for ms in summaries:
+            content_chars = int(ms.get("content_chars") or 0)
+            if content_chars <= chunk_chars:
+                expanded.append(ms)
+                continue
+
+            parts = max(1, math.ceil(content_chars / chunk_chars))
+            for part_index in range(parts):
+                start = part_index * chunk_chars
+                end = min(content_chars, (part_index + 1) * chunk_chars)
+                expanded.append({
+                    **ms,
+                    "slice_index": part_index + 1,
+                    "slice_count": parts,
+                    "content_slice": {"start": start, "end": end},
+                })
+        return expanded
+
+    def _build_sections_for_summaries(self, summaries: list, chapter_index: int) -> List[Dict]:
+        sections = []
+        grouped = []
+        short_group = []
+        max_group_size = self._publisher_cfg().get(
+            "fallback_section_materials",
+            self.DEFAULT_SECTION_MATERIALS,
+        )
+        group_long_chars = self._publisher_cfg().get(
+            "fallback_group_long_material_chars",
+            self.DEFAULT_GROUP_LONG_MATERIAL_CHARS,
+        )
+
+        for ms in summaries:
+            if ms.get("content_slice") or int(ms.get("content_chars") or 0) > group_long_chars:
+                if short_group:
+                    grouped.append(short_group)
+                    short_group = []
+                grouped.append([ms])
+                continue
+
+            short_group.append(ms)
+            if len(short_group) >= max_group_size:
+                grouped.append(short_group)
+                short_group = []
+
+        if short_group:
+            grouped.append(short_group)
+
+        for idx, group in enumerate(grouped, start=1):
+            first = group[0]
+            base_title = self._section_title(first)
+            if len(group) > 1:
+                base_title = f"{base_title} 等 {len(group)} 项资料"
+
+            section = {
+                "title": f"{chapter_index}.{idx} {base_title}",
+                "material_ids": [item["id"] for item in group],
+                "description": "；".join(item.get("summary", item["id"])[:120] for item in group),
+            }
+            material_slices = [
+                {
+                    "id": item["id"],
+                    "start": item["content_slice"]["start"],
+                    "end": item["content_slice"]["end"],
+                    "part": item.get("slice_index"),
+                    "total_parts": item.get("slice_count"),
+                }
+                for item in group
+                if item.get("content_slice")
+            ]
+            if material_slices:
+                section["material_slices"] = material_slices
+            sections.append(section)
+
+        return sections
+
+    @staticmethod
+    def _section_title(summary: dict) -> str:
+        title = str(summary.get("title") or summary.get("summary") or "素材精读")
+        title = re.sub(r"\s+", " ", title).strip()
+        slice_index = summary.get("slice_index")
+        slice_count = summary.get("slice_count")
+        if slice_index and slice_count:
+            title = f"{title[:36]}（第{slice_index}/{slice_count}部分）"
+        return title[:48]
+
+    def _publisher_cfg(self) -> dict:
+        return getattr(self, "config", {}).get("publisher", {}) if getattr(self, "config", None) else {}
 
     def execute(self, input_data: WorkerInput) -> WorkerOutput:
         """Worker接口 - 不直接使用，用plan_book替代"""

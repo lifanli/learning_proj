@@ -272,6 +272,181 @@ async def test_student_agent_study_topic_interface_dispatches_resources(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_student_agent_study_web_page_processes_child_pages(tmp_path, monkeypatch):
+    _write_project_settings(
+        tmp_path,
+        monkeypatch,
+        student={"web_crawl_max_pages": 5, "web_crawl_depth": 1, "web_min_content_chars": 50},
+    )
+    agent = StudentAgent()
+    plan = StudyPlan(
+        source_type="web",
+        root_url="https://example.com",
+        title="Example Docs",
+        pages=[
+            {
+                "url": "https://example.com/docs/intro",
+                "title": "Intro",
+                "order": 0,
+                "depth": 1,
+                "root_url": "https://example.com",
+            },
+            {
+                "url": "https://example.com/docs/setup",
+                "title": "Setup",
+                "order": 1,
+                "depth": 1,
+                "root_url": "https://example.com",
+            },
+        ],
+    )
+    agent.planner.plan_web_site = MagicMock(return_value=plan)
+
+    materials = [
+        Material(
+            source_url="https://example.com/docs/intro",
+            source_type="web",
+            title="Intro",
+            content="intro content " * 20,
+        ),
+        Material(
+            source_url="https://example.com/docs/setup",
+            source_type="web",
+            title="Setup",
+            content="setup content " * 20,
+        ),
+    ]
+    agent.fetcher.run = MagicMock(side_effect=[
+        WorkerOutput(success=True, materials=[materials[0]]),
+        WorkerOutput(success=True, materials=[materials[1]]),
+    ])
+    agent._enrich_material = AsyncMock(side_effect=lambda mat, fetch_output: mat)
+
+    result = await agent._study_web_page(
+        "https://example.com",
+        topic="LLM",
+        source_type="web",
+    )
+
+    assert result["title"] == "Example Docs"
+    assert result["total_pages"] == 2
+    assert result["material_ids"]
+    assert len(result["material_ids"]) == 2
+    assert result["parent_id"]
+    stored = [agent.store.get(mid) for mid in result["material_ids"]]
+    assert {mat.source_url for mat in stored} == {
+        "https://example.com/docs/intro",
+        "https://example.com/docs/setup",
+    }
+    assert all(mat.parent_id == result["parent_id"] for mat in stored)
+    parent = agent.store.get(result["parent_id"])
+    assert parent.source_url == "https://example.com#study-collection"
+    assert parent.metadata["root_url"] == "https://example.com"
+
+
+@pytest.mark.asyncio
+async def test_student_agent_study_web_page_keeps_root_page_when_parent_exists(tmp_path, monkeypatch):
+    _write_project_settings(
+        tmp_path,
+        monkeypatch,
+        student={"web_crawl_max_pages": 5, "web_crawl_depth": 1, "web_min_content_chars": 50},
+    )
+    agent = StudentAgent()
+    plan = StudyPlan(
+        source_type="doc",
+        root_url="https://example.com/docs/index",
+        title="Example Docs",
+        pages=[
+            {
+                "url": "https://example.com/docs/index",
+                "title": "Docs Home",
+                "order": 0,
+                "depth": 0,
+                "root_url": "https://example.com/docs/index",
+            },
+            {
+                "url": "https://example.com/docs/intro",
+                "title": "Intro",
+                "order": 1,
+                "depth": 1,
+                "root_url": "https://example.com/docs/index",
+            },
+        ],
+    )
+    agent.planner.plan_web_site = MagicMock(return_value=plan)
+    agent.fetcher.run = MagicMock(side_effect=[
+        WorkerOutput(success=True, materials=[Material(
+            source_url="https://example.com/docs/index",
+            source_type="doc_page",
+            title="Docs Home",
+            content="root page content " * 20,
+        )]),
+        WorkerOutput(success=True, materials=[Material(
+            source_url="https://example.com/docs/intro",
+            source_type="doc_page",
+            title="Intro",
+            content="intro page content " * 20,
+        )]),
+    ])
+    agent._enrich_material = AsyncMock(side_effect=lambda mat, fetch_output: mat)
+
+    result = await agent._study_web_page(
+        "https://example.com/docs/index",
+        topic="docs",
+        source_type="doc",
+    )
+
+    assert len(result["material_ids"]) == 2
+    stored = [agent.store.get(mid) for mid in result["material_ids"]]
+    assert {mat.source_url for mat in stored} == {
+        "https://example.com/docs/index",
+        "https://example.com/docs/intro",
+    }
+
+
+@pytest.mark.asyncio
+async def test_student_agent_study_web_page_skips_short_content(tmp_path, monkeypatch):
+    _write_project_settings(
+        tmp_path,
+        monkeypatch,
+        student={"web_crawl_max_pages": 5, "web_crawl_depth": 1, "web_min_content_chars": 80},
+    )
+    agent = StudentAgent()
+    plan = StudyPlan(
+        source_type="web",
+        root_url="https://example.com",
+        title="Example",
+        pages=[
+            {
+                "url": "https://example.com/member/login",
+                "title": "Login",
+                "order": 0,
+                "depth": 1,
+                "root_url": "https://example.com",
+            }
+        ],
+    )
+    agent.planner.plan_web_site = MagicMock(return_value=plan)
+    agent.fetcher.run = MagicMock(return_value=WorkerOutput(
+        success=True,
+        materials=[
+            Material(
+                source_url="https://example.com/member/login",
+                source_type="web",
+                title="Login",
+                content="登录 password captcha",
+            )
+        ],
+    ))
+    agent._enrich_material = AsyncMock()
+
+    result = await agent._study_web_page("https://example.com", source_type="web")
+
+    assert result == {"error": "未发现可保存的网页正文", "material_ids": []}
+    agent._enrich_material.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_student_agent_study_curriculum_interface_updates_curriculum_status(tmp_path, monkeypatch):
     paths = _write_project_settings(tmp_path, monkeypatch)
     curriculum_path = paths["config_dir"] / "curriculum.yaml"

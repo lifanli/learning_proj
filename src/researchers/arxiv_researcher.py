@@ -24,17 +24,21 @@ class ArxivResearcher:
         )
 
         results = []
-        for result in self.client.results(search):
-            paper_info = {
-                "title": result.title,
-                "authors": [a.name for a in result.authors],
-                "summary": result.summary,
-                "published": result.published.strftime("%Y-%m-%d"),
-                "pdf_url": result.pdf_url,
-                "entry_id": result.entry_id,
-                "categories": result.categories
-            }
-            results.append(paper_info)
+        try:
+            for result in self.client.results(search):
+                paper_info = {
+                    "title": result.title,
+                    "authors": [a.name for a in result.authors],
+                    "summary": result.summary,
+                    "published": result.published.strftime("%Y-%m-%d"),
+                    "pdf_url": result.pdf_url,
+                    "entry_id": result.entry_id,
+                    "categories": result.categories
+                }
+                results.append(paper_info)
+        except Exception as e:
+            logger.warning(f"ArXiv 搜索失败: {query} - {e}")
+            return []
 
         logger.info(f"找到 {len(results)} 篇论文")
         return results

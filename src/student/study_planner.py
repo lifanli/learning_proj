@@ -5,9 +5,10 @@
 """
 
 import re
+from collections import deque
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse, urlsplit, urlunsplit
 
 from src.core.worker import BaseWorker, WorkerSpec, WorkerInput, WorkerOutput
 from src.tools.web_browser import WebBrowser
@@ -29,6 +30,26 @@ class StudyPlan:
 
 class StudyPlanner:
     """学习计划管理器"""
+
+    ASSET_EXTENSIONS = (
+        ".css", ".js", ".json", ".xml", ".rss", ".ico",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
+        ".zip", ".tar", ".gz", ".rar", ".7z",
+        ".mp3", ".mp4", ".avi", ".mov", ".wmv",
+    )
+    LOW_VALUE_PATH_PARTS = (
+        "/login", "/signin", "/sign-in", "/signup", "/sign-up",
+        "/register", "/member", "/account", "/auth", "/logout",
+        "/search", "/tag/", "/tags/", "/category/", "/categories/",
+        "/privacy", "/terms", "/contact", "/about", "/pricing",
+        "/jobs", "/careers", "/feed", "/rss", "/sitemap",
+        "/wp-login", "/comment", "/comments", "/share",
+    )
+    CONTENT_PATH_HINTS = (
+        "docs", "documentation", "guide", "tutorial", "learn",
+        "course", "chapter", "lesson", "article", "blog", "post",
+        "reference", "api", "concept", "architecture", "paper",
+    )
 
     def __init__(self):
         self.browser = WebBrowser()
@@ -130,6 +151,189 @@ class StudyPlanner:
             })
 
         return plan
+
+    def plan_web_site(
+        self,
+        url: str,
+        max_pages: int = 8,
+        max_depth: int = 1,
+        min_content_chars: int = 200,
+        topic: str = "",
+        source_type: str = "web",
+    ) -> StudyPlan:
+        """
+        制定普通网页/文档的多页面学习计划。
+
+        根页既可能是文章正文，也可能只是导航页；因此这里会先用根页发现同站子页，
+        再只把正文足够、非登录/搜索/导航类的页面加入学习计划。
+        """
+        plan = StudyPlan(source_type=source_type, root_url=url)
+        max_pages = max(1, int(max_pages or 1))
+        max_depth = max(0, int(max_depth or 0))
+        min_content_chars = max(0, int(min_content_chars or 0))
+
+        root_url = self._normalize_url(url)
+        queue = deque([(root_url, 0)])
+        queued = {root_url}
+        visited = set()
+        topic_terms = self._topic_terms(topic)
+
+        # 页面质量过滤后可能丢掉入口页，所以抓取上限要略高于最终入库页数。
+        fetch_limit = max(max_pages * 8, max_pages + 10)
+
+        while queue and len(plan.pages) < max_pages and len(visited) < fetch_limit:
+            current_url, depth = queue.popleft()
+            if current_url in visited:
+                continue
+
+            visited.add(current_url)
+            html = self.browser.fetch_page(current_url)
+            if not html:
+                continue
+
+            title = self.browser.extract_title(html) or current_url
+            if not plan.title:
+                plan.title = title
+
+            text = self.browser.extract_text(html)
+            if self._is_usable_content_page(current_url, title, text, min_content_chars):
+                plan.pages.append({
+                    "url": current_url,
+                    "title": title,
+                    "order": len(plan.pages),
+                    "depth": depth,
+                    "root_url": root_url,
+                    "content_chars": len(text.strip()),
+                })
+
+            if depth >= max_depth:
+                continue
+
+            links = self.browser.extract_links(html, current_url)
+            candidates = []
+            for link in links:
+                normalized = self._normalize_url(link)
+                if normalized in visited or normalized in queued:
+                    continue
+                if self._is_crawlable_subpage(normalized, root_url):
+                    candidates.append(normalized)
+
+            for link in sorted(set(candidates), key=lambda item: self._link_sort_key(item, topic_terms)):
+                queued.add(link)
+                queue.append((link, depth + 1))
+
+        if not plan.title:
+            plan.title = url
+
+        logger.info(
+            f"网页学习计划: {plan.title} | 可用页面={len(plan.pages)} "
+            f"| 已探测={len(visited)} | depth={max_depth}"
+        )
+        return plan
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """去掉锚点/查询参数，用于同页去重。"""
+        parts = urlsplit(url.strip())
+        path = parts.path or "/"
+        if path != "/":
+            path = path.rstrip("/")
+        return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
+
+    @staticmethod
+    def _topic_terms(topic: str) -> List[str]:
+        return [
+            term.lower()
+            for term in re.split(r"[\s,，;；/|]+", topic or "")
+            if len(term.strip()) >= 2
+        ]
+
+    def _is_crawlable_subpage(self, link: str, root_url: str) -> bool:
+        parsed_link = urlparse(link)
+        parsed_root = urlparse(root_url)
+        if parsed_link.scheme not in ("http", "https"):
+            return False
+        if parsed_link.netloc != parsed_root.netloc:
+            return False
+
+        path = unquote(parsed_link.path or "/").lower()
+        if path.endswith(self.ASSET_EXTENSIONS):
+            return False
+        if any(part in path for part in self.LOW_VALUE_PATH_PARTS):
+            return False
+
+        scope_path = self._crawl_scope_path(root_url)
+        if scope_path and not (path == scope_path or path.startswith(scope_path + "/")):
+            return False
+        return True
+
+    def _crawl_scope_path(self, root_url: str) -> str:
+        """
+        从入口 URL 推断安全爬取范围，避免同域名下跨产品线乱跳。
+
+        例如 HuggingFace 的 /docs/transformers/index 只应继续读取
+        /docs/transformers/*，不应混入 /learn/llm-course/*。
+        """
+        parsed = urlparse(root_url)
+        path = unquote(parsed.path or "/").strip("/").lower()
+        if not path:
+            return ""
+
+        parts = [part for part in path.split("/") if part]
+        if not parts:
+            return ""
+        if parts[-1] in ("index", "home", "overview", "introduction"):
+            parts = parts[:-1]
+        elif "." in parts[-1]:
+            parts = parts[:-1]
+
+        if not parts:
+            return ""
+
+        doc_roots = {"docs", "documentation", "learn", "course", "courses", "tutorial"}
+        if parts[0] in doc_roots and len(parts) >= 2:
+            return "/" + "/".join(parts[:2])
+        return "/" + parts[0]
+
+    def _is_usable_content_page(
+        self,
+        url: str,
+        title: str,
+        text: str,
+        min_content_chars: int,
+    ) -> bool:
+        path = unquote(urlparse(url).path or "/").lower()
+        if path.endswith(self.ASSET_EXTENSIONS):
+            return False
+        if any(part in path for part in self.LOW_VALUE_PATH_PARTS):
+            return False
+
+        compact = re.sub(r"\s+", " ", text or "").strip()
+        if len(compact) < min_content_chars:
+            return False
+
+        login_signals = (
+            "登录", "登陆", "注册", "验证码", "sign in", "log in",
+            "sign up", "password", "forgot password", "captcha",
+        )
+        haystack = f"{title} {compact[:1000]}".lower()
+        signal_count = sum(1 for signal in login_signals if signal in haystack)
+        if signal_count >= 2 and len(compact) < 1500:
+            return False
+
+        return True
+
+    def _link_sort_key(self, link: str, topic_terms: List[str]):
+        path = unquote(urlparse(link).path or "/").lower()
+        score = 0
+        for hint in self.CONTENT_PATH_HINTS:
+            if hint in path:
+                score += 10
+        for term in topic_terms:
+            if term and term in path:
+                score += 5
+        depth = len([part for part in path.split("/") if part])
+        return (-score, depth, path)
 
     def _find_github_urls(self, html: str) -> List[str]:
         """从HTML中提取GitHub仓库URL"""

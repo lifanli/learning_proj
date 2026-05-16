@@ -414,9 +414,10 @@ class StudentAgent:
                     result = await self.study_arxiv(url)
                 elif res_type == "course":
                     result = await self.study_course(url, max_pages=30)
+                elif res_type == "doc":
+                    result = await self._study_web_page(url, topic=topic, source_type="doc")
                 else:
-                    # doc / web → 当做普通网页抓取
-                    result = await self._study_web_page(url)
+                    result = await self._study_web_page(url, topic=topic, source_type="web")
 
                 if "error" in result:
                     all_errors.append(f"[{res_type}] {url}: {result['error']}")
@@ -530,8 +531,10 @@ class StudentAgent:
                                 await self.study_arxiv(url)
                             elif source_type == "course":
                                 await self.study_course(url, max_pages=30)
+                            elif source_type == "doc":
+                                await self._study_web_page(url, topic=topic_name, source_type="doc")
                             else:
-                                await self._study_web_page(url)
+                                await self._study_web_page(url, topic=topic_name, source_type="web")
                         except TaskCancellationRequested:
                             raise
                         except Exception as e:
@@ -608,23 +611,147 @@ class StudentAgent:
         report_progress(98, f"自动学习：完成={stats['completed']}，失败={stats['failed']}，跳过={stats['skipped']}")
         return stats
 
-    async def _study_web_page(self, url: str) -> Dict:
-        """学习普通网页（doc/web类型的降级处理）"""
-        fetch_input = WorkerInput(
-            url=url,
-            metadata={"source_type": "web"},
+    async def _study_web_page(
+        self,
+        url: str,
+        max_pages: Optional[int] = None,
+        max_depth: Optional[int] = None,
+        topic: str = "",
+        source_type: str = "web",
+    ) -> Dict:
+        """学习普通网页/文档：先发现同站子页面，再抓取有正文价值的页面。"""
+        student_cfg = self.config.get("student", {})
+        if max_pages is None:
+            max_pages = int(student_cfg.get("web_crawl_max_pages", 8))
+        if max_depth is None:
+            max_depth = int(student_cfg.get("web_crawl_depth", 1))
+        min_content_chars = int(student_cfg.get("web_min_content_chars", 200))
+
+        plan = self.planner.plan_web_site(
+            url,
+            max_pages=max_pages,
+            max_depth=max_depth,
+            min_content_chars=min_content_chars,
+            topic=topic,
+            source_type=source_type,
         )
-        fetch_output = self.fetcher.run(fetch_input)
+
+        if not plan.pages:
+            return {"error": "未发现可用网页内容", "material_ids": []}
+
+        parent_id = ""
+        root_page_url = plan.pages[0].get("url", "")
+        needs_parent = len(plan.pages) > 1 or root_page_url.rstrip("/") != url.rstrip("/")
+        if needs_parent:
+            parent_source_url = f"{url.rstrip('/')}#study-collection"
+            parent_material = Material(
+                source_url=parent_source_url,
+                source_type="doc" if source_type == "doc" else "web_site",
+                title=plan.title,
+                content=f"网页资料集: {plan.title}\nURL: {url}\n共 {len(plan.pages)} 个可用子页面",
+                metadata={
+                    "root_url": url,
+                    "total_pages": len(plan.pages),
+                    "crawl_depth": max_depth,
+                    "source_type": source_type,
+                },
+            )
+            parent_id = self.store.save(parent_material)
+
+        max_concurrent = self.config.get("student", {}).get("max_concurrent_fetches", 10)
+        sem = asyncio.Semaphore(max_concurrent)
+
+        async def process_page(page):
+            async with sem:
+                return await self._process_web_page(
+                    page,
+                    parent_id=parent_id,
+                    source_type=source_type,
+                    min_content_chars=min_content_chars,
+                )
+
+        results = await asyncio.gather(
+            *(process_page(page) for page in plan.pages),
+            return_exceptions=True,
+        )
+
+        material_ids = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(f"网页处理异常: {plan.pages[i]['url']} - {result}")
+            elif result:
+                material_ids.append(result)
+
+        if not material_ids:
+            return {"error": "未发现可保存的网页正文", "material_ids": []}
+
+        response = {
+            "title": plan.title,
+            "material_ids": material_ids,
+            "total_pages": len(plan.pages),
+        }
+        if parent_id:
+            response["parent_id"] = parent_id
+        if len(material_ids) == 1:
+            response["material_id"] = material_ids[0]
+        return response
+
+    async def _process_web_page(
+        self,
+        page: dict,
+        parent_id: str = "",
+        source_type: str = "web",
+        min_content_chars: int = 200,
+    ) -> Optional[str]:
+        """抓取并保存单个网页/文档子页面。"""
+        page_url = page["url"]
+        existing = self.store.exists_by_url(page_url)
+        if existing:
+            logger.info(f"网页已存在，跳过: {page_url}")
+            return existing
+
+        fetch_input = WorkerInput(
+            url=page_url,
+            parent_id=parent_id,
+            metadata={
+                "source_type": "doc_page" if source_type == "doc" else "web",
+                "order": page.get("order", 0),
+                "root_url": page.get("root_url", ""),
+                "depth": page.get("depth", 0),
+            },
+        )
+        loop = asyncio.get_event_loop()
+        fetch_output = await loop.run_in_executor(None, self.fetcher.run, fetch_input)
         if not fetch_output.success:
-            return {"error": fetch_output.error}
+            logger.warning(f"网页抓取失败: {page_url} - {fetch_output.error}")
+            return None
 
         mat = fetch_output.materials[0] if fetch_output.materials else Material(
-            source_url=url, source_type="web", content=fetch_output.content
+            source_url=page_url,
+            source_type="doc_page" if source_type == "doc" else "web",
+            content=fetch_output.content,
         )
-        mat.source_type = "web"
+        content_len = len((mat.content or "").strip())
+        if content_len < min_content_chars:
+            logger.warning(f"网页正文过短，跳过: {page_url} ({content_len}字)")
+            return None
+
+        mat.parent_id = parent_id
+        mat.order_index = page.get("order", 0)
+        mat.source_type = "doc_page" if source_type == "doc" else "web"
+        mat.metadata = {
+            **(mat.metadata or {}),
+            "root_url": page.get("root_url", ""),
+            "crawl_depth": page.get("depth", 0),
+            "content_chars": content_len,
+        }
+        if not mat.id:
+            mat.id = uuid.uuid4().hex[:12]
+
         mat = await self._enrich_material(mat, fetch_output)
         mat_id = self.store.save(mat)
-        return {"title": mat.title, "material_id": mat_id}
+        logger.info(f"[StudentAgent] 网页完成: {mat.title[:50] or page_url}")
+        return mat_id
 
     def _detect_source_type(self, url: str) -> str:
         """检测URL类型"""
@@ -632,6 +759,8 @@ class StudentAgent:
             return "github"
         elif "arxiv.org" in url:
             return "arxiv"
+        elif any(kw in url.lower() for kw in ("docs.", "documentation", "readthedocs", "/docs/")):
+            return "doc"
         elif any(kw in url.lower() for kw in ("learn", "course", "tutorial")):
             return "course"
         else:

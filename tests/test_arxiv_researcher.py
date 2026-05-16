@@ -72,6 +72,19 @@ class TestSearchPapersMock:
         assert "OR" in query
         assert "cat:cs.CL" in query
 
+    @patch("src.researchers.arxiv_researcher.arxiv")
+    def test_search_papers_returns_empty_on_api_failure(self, mock_arxiv, tmp_path):
+        """ArXiv 限流/网络错误时返回空列表，而不是让上层任务崩溃。"""
+        mock_client = MagicMock()
+        mock_client.results.side_effect = RuntimeError("HTTP 429")
+        mock_arxiv.Client.return_value = mock_client
+        mock_arxiv.Search = MagicMock()
+        mock_arxiv.SortCriterion.Relevance = "relevance"
+
+        researcher = ArxivResearcher(download_dir=str(tmp_path / "pdfs"))
+
+        assert researcher.search_papers("transformers", max_results=1) == []
+
 
 class TestDownloadAndParseMock:
     """Mock 测试 download_and_parse"""
